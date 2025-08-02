@@ -1,0 +1,92 @@
+# Default configuration for crypto quant bot
+trading:
+  dry_run: true
+  base_currency: "USDT"
+  max_position_size: 1000
+  risk_limit: 0.02
+  default_timeframe: "1h"
+  
+exchanges:
+  binance:
+    name: "binance"
+    sandbox: true
+    rate_limit: 1200
+  bybit:
+    name: "bybit" 
+    sandbox: true
+    rate_limit: 1000
+
+signals:
+  momentum:
+    enabled: true
+    lookback_days: 90
+    skip_recent_days: 7
+    weight: 1.0
+  
+  funding_carry:
+    enabled: true
+    funding_threshold: 0.0007  # 0.07% threshold from Kaiko research
+    max_allocation: 0.20       # 20% max allocation per signal
+    reversal_stop_hours: 6     # Stop if funding reverses for 6+ hours
+    confidence_multiplier: 10.0
+    min_funding_magnitude: 0.0001
+    max_position_hours: 24
+    max_funding_exposure: 2.0
+    emergency_exit_threshold: 0.02
+    weight: 1.5
+  
+  mean_reversion:
+    enabled: true
+    zscore_threshold: 2.0
+    lookback_days: 3
+    weight: 0.8
+    
+  vol_risk_premium:
+    enabled: true
+    vrp_threshold_min: 0.05        # 5% minimum VRP to trigger
+    vrp_threshold_max: 0.15        # 15% VRP for max signal  
+    min_days_to_expiry: 7          # Minimum 7 days
+    max_days_to_expiry: 14         # Maximum 14 days
+    target_days_to_expiry: 10      # Optimal 10 days
+    max_vega_allocation: 0.20      # 20% max vega allocation
+    vol_target: 0.15               # 15% volatility target
+    max_position_count: 3          # Max concurrent positions
+    delta_hedge_threshold: 0.10    # Hedge when |delta| > 10%
+    hedge_frequency_hours: 4       # Hedge every 4 hours
+    wing_delta: 0.25               # 25Δ wings
+    max_wing_cost_ratio: 0.15      # ≤15% of premium collected
+    enable_tail_protection: true   # Enable disaster wings
+    weight: 1.2
+    
+  skew_whipsaw:
+    enabled: true
+    skew_threshold: 15.0           # +15 skew threshold for signal activation
+    vol_peak_lookback: 24          # Hours to look back for vol peak detection
+    max_iv_exposure: 0.5           # Max 50% of current IV for position sizing
+    spread_width_pct: 0.05         # 5% OTM for vertical spread width
+    min_confidence_iv: 0.20        # Minimum IV for signal confidence
+    max_confidence_iv: 0.80        # Maximum IV for signal confidence
+    skew_mean_reversion_period: 48 # Hours for skew mean reversion
+    volume_spike_threshold: 2.0    # 2x average volume for ETF headlines
+    min_time_to_expiry: 168        # Minimum 7 days to expiry for options (hours)
+    weight: 1.0                    # Signal weight in portfolio blending
+
+risk:
+  max_leverage: 3.0
+  stop_loss_pct: 0.05
+  position_size_method: "fixed_risk"
+  
+notifications:
+  email:
+    enabled: true
+    trade_alerts: true
+    risk_alerts: true
+    daily_summary: true
+    
+data:
+  cache_days: 30
+  update_interval_minutes: 5
+  
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
