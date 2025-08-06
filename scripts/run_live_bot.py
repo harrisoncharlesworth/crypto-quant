@@ -12,6 +12,8 @@ import signal
 from datetime import datetime, timedelta
 from typing import Dict, Any
 import traceback
+import threading
+from flask import Flask, jsonify
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -39,6 +41,14 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Health check server
+app = Flask(__name__)
+
+@app.route('/health')
+def health():
+    """Health check endpoint for Railway."""
+    return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat()})
 
 class CryptoTradingBot:
     """Main trading bot for Railway deployment."""
@@ -337,8 +347,19 @@ The bot will now monitor markets and generate trading signals automatically.
                 body="Your crypto trading bot has stopped running on Railway."
             )
 
+def run_health_server():
+    """Run Flask health server in background."""
+    port = int(os.getenv('PORT', 8080))
+    app.run(host='0.0.0.0', port=port, debug=False)
+
 async def main():
     """Main entry point."""
+    # Start health server in background thread
+    health_thread = threading.Thread(target=run_health_server, daemon=True)
+    health_thread.start()
+    logger.info(f"🌐 Health server started on port {os.getenv('PORT', 8080)}")
+    
+    # Start trading bot
     bot = CryptoTradingBot()
     await bot.run()
 
