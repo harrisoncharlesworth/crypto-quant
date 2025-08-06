@@ -79,6 +79,9 @@ class CryptoTradingBot:
 
         # Trading configuration
         self.dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
+        self.use_futures = (
+            os.getenv("USE_FUTURES", "true").lower() == "true"
+        )  # Default to futures
         self.update_interval = int(
             os.getenv("UPDATE_INTERVAL_MINUTES", "5")
         )  # 5 minutes default for more action
@@ -91,7 +94,7 @@ class CryptoTradingBot:
         )  # Use 80% of balance
 
         logger.info(
-            f"Bot initialized - DRY_RUN: {self.dry_run}, Interval: {self.update_interval}min"
+            f"Bot initialized - DRY_RUN: {self.dry_run}, Futures: {self.use_futures}, Interval: {self.update_interval}min"
         )
         logger.info(f"Trading symbols: {', '.join(self.symbols)}")
         logger.info(f"Max portfolio allocation: {self.max_portfolio_allocation:.0%}")
@@ -142,6 +145,13 @@ class CryptoTradingBot:
             if sandbox:
                 config["test"] = True
                 logger.info("Using Binance testnet")
+
+            # Choose exchange type based on configuration
+            if self.use_futures:
+                config["options"] = {"defaultType": "future"}  # Configure for futures
+                logger.info("Using Binance Futures API")
+            else:
+                logger.info("Using Binance Spot API")
 
             self.exchange = ccxt.binance(config)
 
