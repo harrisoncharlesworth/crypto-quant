@@ -59,13 +59,15 @@ class CryptoTradingBot:
         self.signals = {}
         self.blender = None
         self.last_signal_time = None
+        self.main_task = None
         
         # Trading configuration
         self.dry_run = os.getenv('DRY_RUN', 'true').lower() == 'true'
         self.update_interval = int(os.getenv('UPDATE_INTERVAL_MINUTES', '15'))  # 15 minutes default
-        self.symbols = os.getenv('TRADING_SYMBOLS', 'BTCUSDT,ETHUSDT').split(',')
+        self.symbols = os.getenv('TRADING_SYMBOLS', 'BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,ADAUSDT,LTCUSDT,MATICUSDT,XRPUSDT').split(',')
         
         logger.info(f"Bot initialized - DRY_RUN: {self.dry_run}, Interval: {self.update_interval}min")
+        logger.info(f"Trading symbols: {', '.join(self.symbols)}")
     
     async def setup_exchange(self):
         """Setup Binance exchange connection."""
@@ -165,28 +167,37 @@ The bot will now monitor markets and generate trading signals automatically.
             return False
     
     async def get_market_data(self, symbol: str, days: int = 90) -> pd.DataFrame:
-        """Fetch market data from exchange."""
-        try:
-            # Fetch OHLCV data
-            ohlcv = self.exchange.fetch_ohlcv(
-                symbol, 
-                timeframe='1h', 
-                limit=days * 24
-            )
-            
-            # Convert to DataFrame
-            df = pd.DataFrame(
-                ohlcv, 
-                columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
-            )
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-            df.set_index('timestamp', inplace=True)
-            
-            return df
-            
-        except Exception as e:
-            logger.error(f"Failed to fetch data for {symbol}: {e}")
-            return pd.DataFrame()
+        """Fetch market data from exchange with exponential backoff."""
+        for retry in range(5):
+            try:
+                # Fetch OHLCV data
+                ohlcv = self.exchange.fetch_ohlcv(
+                    symbol, 
+                    timeframe='1h', 
+                    limit=days * 24
+                )
+                
+                # Convert to DataFrame
+                df = pd.DataFrame(
+                    ohlcv, 
+                    columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
+                )
+                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                df.set_index('timestamp', inplace=True)
+                
+                return df
+                
+            except ccxt.NetworkError as e:
+                if retry < 4:
+                    wait_time = 2 ** retry
+                    logger.warning(f"Network error for {symbol}, retrying in {wait_time}s: {e}")
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(f"Failed to fetch data for {symbol} after 5 retries: {e}")
+                    return pd.DataFrame()
+            except Exception as e:
+                logger.error(f"Failed to fetch data for {symbol}: {e}")
+                return pd.DataFrame()
     
     async def generate_signals(self, symbol: str) -> Dict[str, Any]:
         """Generate signals for a symbol."""
@@ -261,6 +272,32 @@ The bot will now monitor markets and generate trading signals automatically.
                 severity="ERROR"
             )
     
+    async def watchdog(self):
+        """Internal watchdog to ensure trading loop is running."""
+        while self.running:
+            try:
+                # Check if trading loop is stuck
+                if (self.last_signal_time and 
+                    datetime.utcnow() - self.last_signal_time > timedelta(minutes=2 * self.update_interval)):
+                    logger.error("⚠️ Trading loop stuck - restarting...")
+                    
+                    # Cancel and restart main task
+                    if self.main_task and not self.main_task.done():
+                        self.main_task.cancel()
+                    
+                    self.main_task = asyncio.create_task(self.trading_loop())
+                    
+                    await notifier.send_risk_alert(
+                        message="Trading loop was stuck and has been restarted",
+                        severity="WARNING"
+                    )
+                
+                await asyncio.sleep(60)  # Check every minute
+                
+            except Exception as e:
+                logger.error(f"Watchdog error: {e}")
+                await asyncio.sleep(60)
+
     async def trading_loop(self):
         """Main trading loop."""
         logger.info("🤖 Starting trading loop...")
@@ -328,8 +365,12 @@ The bot will now monitor markets and generate trading signals automatically.
             if not self.setup_signals():
                 return
             
-            # Run trading loop
-            await self.trading_loop()
+            # Start trading loop and watchdog
+            self.main_task = asyncio.create_task(self.trading_loop())
+            watchdog_task = asyncio.create_task(self.watchdog())
+            
+            # Wait for either task to complete
+            await asyncio.gather(self.main_task, watchdog_task, return_exceptions=True)
             
         except Exception as e:
             logger.error(f"Bot crashed: {e}")
