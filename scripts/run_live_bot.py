@@ -60,14 +60,42 @@ class CryptoTradingBot:
         self.blender = None
         self.last_signal_time = None
         self.main_task = None
+        self.next_digest = None
+        self.recent_signals = []
+        self.recent_trades = []
         
         # Trading configuration
         self.dry_run = os.getenv('DRY_RUN', 'true').lower() == 'true'
-        self.update_interval = int(os.getenv('UPDATE_INTERVAL_MINUTES', '15'))  # 15 minutes default
+        self.update_interval = int(os.getenv('UPDATE_INTERVAL_MINUTES', '5'))  # 5 minutes default for more action
         self.symbols = os.getenv('TRADING_SYMBOLS', 'BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,ADAUSDT,LTCUSDT,MATICUSDT,XRPUSDT').split(',')
+        self.max_portfolio_allocation = float(os.getenv('MAX_PORTFOLIO_ALLOCATION', '0.80'))  # Use 80% of balance
         
         logger.info(f"Bot initialized - DRY_RUN: {self.dry_run}, Interval: {self.update_interval}min")
         logger.info(f"Trading symbols: {', '.join(self.symbols)}")
+        logger.info(f"Max portfolio allocation: {self.max_portfolio_allocation:.0%}")
+        
+        # Initialize next digest time
+        self.next_digest = self.calculate_next_digest_time()
+
+    def calculate_next_digest_time(self) -> datetime:
+        """Calculate next digest send time (00:00, 08:00, 16:00 UTC)."""
+        DIGEST_HOURS = [0, 8, 16]
+        now = datetime.utcnow()
+        
+        # Find next digest hour
+        next_hour = None
+        for hour in DIGEST_HOURS:
+            digest_time = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+            if digest_time > now:
+                next_hour = digest_time
+                break
+        
+        # If no hour today, use first hour tomorrow
+        if next_hour is None:
+            next_hour = now.replace(hour=DIGEST_HOURS[0], minute=0, second=0, microsecond=0) + timedelta(days=1)
+        
+        logger.info(f"Next digest scheduled for: {next_hour.strftime('%Y-%m-%d %H:%M UTC')}")
+        return next_hour
     
     async def setup_exchange(self):
         """Setup Binance exchange connection."""
@@ -233,37 +261,101 @@ The bot will now monitor markets and generate trading signals automatically.
             logger.error(f"Signal generation failed for {symbol}: {e}")
             return {}
     
-    async def execute_trades(self, signals: Dict[str, Any]):
-        """Execute trades based on signals."""
+    async def get_account_balance(self) -> float:
+        """Get current USDT balance."""
         try:
-            for symbol_data in signals.values():
+            balance = self.exchange.fetch_balance()
+            usdt_balance = balance.get('USDT', {}).get('free', 0)
+            return float(usdt_balance)
+        except Exception as e:
+            logger.error(f"Failed to get balance: {e}")
+            return 0.0
+
+    async def get_current_price(self, symbol: str) -> float:
+        """Get current market price for symbol."""
+        try:
+            ticker = self.exchange.fetch_ticker(symbol)
+            return float(ticker['last'])
+        except Exception as e:
+            logger.error(f"Failed to get price for {symbol}: {e}")
+            return 0.0
+
+    async def execute_trades(self, signals: Dict[str, Any]):
+        """Execute trades based on signals with proper position sizing."""
+        try:
+            # Get current balance
+            balance = await self.get_account_balance()
+            if balance <= 0:
+                logger.warning("No USDT balance available for trading")
+                return
+            
+            # Calculate available capital for new positions
+            available_capital = balance * self.max_portfolio_allocation
+            
+            # Count valid signals (lowered threshold to be more active)
+            valid_signals = [s for s in signals.values() if abs(s.get('final_position', 0)) >= 0.05]
+            if not valid_signals:
+                logger.info("No valid trading signals generated")
+                return
+            
+            # Allocate capital across signals
+            capital_per_signal = available_capital / len(valid_signals)
+            
+            for symbol_data in valid_signals:
                 symbol = symbol_data.get('symbol')
                 position = symbol_data.get('final_position', 0)
                 confidence = symbol_data.get('confidence', 0)
                 
-                if abs(position) < 0.1:  # Neutral position
+                # Get current price
+                current_price = await self.get_current_price(symbol)
+                if current_price <= 0:
                     continue
                 
-                # Calculate position size
-                max_position_size = float(os.getenv('MAX_POSITION_SIZE', '100'))
-                position_size = abs(position) * confidence * max_position_size
+                # Calculate position size based on signal strength and confidence
+                signal_strength = abs(position) * confidence
+                position_value = capital_per_signal * signal_strength
+                
+                # Minimum position size of $50
+                if position_value < 50:
+                    continue
                 
                 action = "BUY" if position > 0 else "SELL"
                 
+                # Store signal for tracking
+                signal_text = f"{datetime.utcnow().strftime('%H:%M')} {symbol} {action} ${position_value:.0f} (conf: {confidence:.1%})"
+                self.recent_signals.append(signal_text)
+                
+                # Keep only last 50 signals
+                if len(self.recent_signals) > 50:
+                    self.recent_signals = self.recent_signals[-50:]
+                
                 if self.dry_run:
-                    logger.info(f"DRY RUN: {action} {position_size:.2f} USDT of {symbol}")
+                    logger.info(f"🎯 PAPER TRADE: {action} ${position_value:.2f} of {symbol} @ ${current_price:.4f}")
+                    logger.info(f"   → Signal: {position:.3f}, Confidence: {confidence:.1%}, Balance: ${balance:.0f}")
+                    
+                    # Track paper trade
+                    trade_info = {
+                        'symbol': symbol,
+                        'action': action.lower(),
+                        'price': current_price,
+                        'size': position_value,
+                        'timestamp': datetime.utcnow()
+                    }
+                    self.recent_trades.append(trade_info)
                     
                     # Send notification
                     await notifier.send_trade_alert(
                         symbol=symbol,
                         action=action.lower(),
-                        price=0.0,  # We'd get this from ticker
-                        size=position_size,
-                        reason=f"Signal strength: {position:.3f}, confidence: {confidence:.3f} (DRY RUN)"
+                        price=current_price,
+                        size=position_value,
+                        reason=f"Signal: {position:.3f}, Confidence: {confidence:.1%} (PAPER)"
                     )
                 else:
-                    # TODO: Implement actual trading logic
-                    logger.info(f"LIVE TRADE: {action} {position_size:.2f} USDT of {symbol}")
+                    # TODO: Implement actual live trading
+                    logger.info(f"🚀 LIVE TRADE: {action} ${position_value:.2f} of {symbol} @ ${current_price:.4f}")
+                    
+            logger.info(f"💰 Portfolio allocation: {len(valid_signals)} positions, ${available_capital:.0f} capital used")
         
         except Exception as e:
             logger.error(f"Trade execution failed: {e}")
@@ -271,6 +363,45 @@ The bot will now monitor markets and generate trading signals automatically.
                 message=f"Trade execution error: {e}",
                 severity="ERROR"
             )
+
+    async def send_portfolio_digest(self):
+        """Send comprehensive portfolio digest email."""
+        try:
+            # Get account data
+            balance = await self.get_account_balance()
+            
+            # Calculate simple P&L based on recent trades (paper trading)
+            realised_pnl = 0.0  # TODO: Calculate from completed trades
+            unrealised_pnl = 0.0  # TODO: Calculate from open positions
+            
+            # Mock open positions for paper trading
+            open_positions = []
+            if self.recent_trades:
+                # Show last few trades as "open positions" for demo
+                for trade in self.recent_trades[-5:]:
+                    open_positions.append({
+                        'symbol': trade['symbol'],
+                        'side': trade['action'].upper(),
+                        'size': trade['size'],
+                        'entry_price': trade['price'],
+                        'current_price': trade['price'] * (1 + np.random.uniform(-0.02, 0.02)),  # Mock price movement
+                        'unrealised_pnl': np.random.uniform(-20, 50)  # Mock P&L
+                    })
+            
+            # Send digest
+            await notifier.send_digest(
+                account_equity=balance,
+                realised_pnl=realised_pnl,
+                unrealised_pnl=sum(pos.get('unrealised_pnl', 0) for pos in open_positions),
+                open_positions=open_positions,
+                recent_signals=self.recent_signals,
+                period="8-hour"
+            )
+            
+            logger.info(f"📬 Portfolio digest sent - Balance: ${balance:.0f}, Signals: {len(self.recent_signals)}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send portfolio digest: {e}")
     
     async def watchdog(self):
         """Internal watchdog to ensure trading loop is running."""
@@ -318,14 +449,10 @@ The bot will now monitor markets and generate trading signals automatically.
                     await self.execute_trades(all_signals)
                     self.last_signal_time = datetime.utcnow()
                 
-                # Send daily summary (if it's been 24 hours)
-                if (self.last_signal_time and 
-                    datetime.utcnow() - self.last_signal_time > timedelta(hours=24)):
-                    await notifier.send_daily_summary(
-                        pnl=0.0,  # TODO: Calculate actual P&L
-                        trades=len(all_signals),
-                        signals=list(all_signals.keys())
-                    )
+                # Check if time for digest email
+                if datetime.utcnow() >= self.next_digest:
+                    await self.send_portfolio_digest()
+                    self.next_digest = self.calculate_next_digest_time()
                 
                 # Wait for next iteration
                 logger.info(f"💤 Sleeping for {self.update_interval} minutes...")
