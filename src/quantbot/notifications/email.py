@@ -13,11 +13,12 @@ class EmailNotifier:
     """Cost-efficient email notification system using SMTP."""
 
     def __init__(self):
-        self.smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+        # Support both old and new variable names for compatibility
+        self.smtp_host = os.getenv("SMTP_SERVER", os.getenv("SMTP_HOST", "smtp.gmail.com"))
         self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
-        self.smtp_user = os.getenv("SMTP_USER")
-        self.smtp_password = os.getenv("SMTP_PASSWORD")
-        self.notification_email = os.getenv("NOTIFICATION_EMAIL")
+        self.smtp_user = os.getenv("EMAIL_FROM", os.getenv("SMTP_USER"))
+        self.smtp_password = os.getenv("EMAIL_PASSWORD", os.getenv("SMTP_PASSWORD"))
+        self.notification_email = os.getenv("EMAIL_TO", os.getenv("NOTIFICATION_EMAIL"))
 
         if not all([self.smtp_user, self.smtp_password, self.notification_email]):
             logger.warning("Email credentials not fully configured")

@@ -1,0 +1,27 @@
+# Don't copy these to Docker container
+.git
+.gitignore
+.env
+.env.example
+*.md
+Dockerfile
+.dockerignore
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.coverage
+.venv
+venv/
+env/
+logs/
+*.log
+.DS_Store
+notebooks/
+docs/
+migrations/
+validation_report_*.txt
+VALIDATION_SUMMARY.md
+PRODUCTION_SUMMARY.md
+subagents.md
