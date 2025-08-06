@@ -96,6 +96,7 @@ class CryptoTradingBot:
         logger.info(
             f"Bot initialized - DRY_RUN: {self.dry_run}, Futures: {self.use_futures}, Interval: {self.update_interval}min"
         )
+        logger.info(f"Environment check - USE_FUTURES env var: {os.getenv('USE_FUTURES', 'NOT_SET')}")
         logger.info(f"Trading symbols: {', '.join(self.symbols)}")
         logger.info(f"Max portfolio allocation: {self.max_portfolio_allocation:.0%}")
 
