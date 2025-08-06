@@ -11,7 +11,7 @@ from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest, StopL
 from alpaca.trading.enums import OrderSide, TimeInForce, AssetClass
 from alpaca.data.historical import CryptoHistoricalDataClient
 from alpaca.data.requests import CryptoBarsRequest
-from alpaca.data.timeframe import TimeFrame
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
 
 class AlpacaWrapper:
@@ -38,6 +38,28 @@ class AlpacaWrapper:
         self.paper = paper
         self.markets = {}
         self.symbols = {}
+        
+    def _to_alpaca_timeframe(self, tf: str) -> TimeFrame:
+        """Convert CCXT-style timeframe strings to Alpaca TimeFrame instance."""
+        try:
+            amount = int(tf[:-1])
+            unit_char = tf[-1].lower()
+
+            if unit_char == 'm':
+                unit = TimeFrameUnit.Minute
+            elif unit_char == 'h':
+                unit = TimeFrameUnit.Hour
+            elif unit_char == 'd':
+                unit = TimeFrameUnit.Day
+            else:
+                # Default to hour for unsupported timeframes
+                unit = TimeFrameUnit.Hour
+                amount = 1
+
+            return TimeFrame(amount, unit)
+        except:
+            # Fallback to 1 hour
+            return TimeFrame(1, TimeFrameUnit.Hour)
         
     def load_markets(self):
         """Load available crypto markets."""
@@ -97,8 +119,8 @@ class AlpacaWrapper:
         try:
             alpaca_symbol = self.symbols.get(symbol, f"{symbol[:3]}/{symbol[3:]}")
             
-            # Use hour timeframe for simplicity (most signals need hourly data)
-            alpaca_tf = TimeFrame(1, 'hour')
+            # Convert timeframe using helper method
+            alpaca_tf = self._to_alpaca_timeframe(timeframe)
             
             # Calculate start time - get more data than needed
             end_time = datetime.now()
