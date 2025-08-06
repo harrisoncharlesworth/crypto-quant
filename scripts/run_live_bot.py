@@ -31,7 +31,7 @@ from quantbot.portfolio.blender_v2 import (
     AllocationMethod,
 )
 from quantbot.notifications.email import notifier
-import ccxt
+from quantbot.exchanges.alpaca_wrapper import AlpacaWrapper
 import pandas as pd
 import numpy as np
 
@@ -87,7 +87,7 @@ class CryptoTradingBot:
         )  # 5 minutes default for more action
         self.symbols = os.getenv(
             "TRADING_SYMBOLS",
-            "BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,ADAUSDT,LTCUSDT,MATICUSDT,XRPUSDT",
+            "BTCUSD,ETHUSD,SOLUSD,ADAUSD,LTCUSD,XRPUSD",
         ).split(",")
         self.max_portfolio_allocation = float(
             os.getenv("MAX_PORTFOLIO_ALLOCATION", "0.80")
@@ -128,48 +128,30 @@ class CryptoTradingBot:
         return next_hour
 
     async def setup_exchange(self):
-        """Setup Binance exchange connection."""
+        """Setup Alpaca exchange connection."""
         try:
-            api_key = os.getenv("BINANCE_API_KEY")
-            secret = os.getenv("BINANCE_SECRET")
-            sandbox = os.getenv("BINANCE_SANDBOX", "true").lower() == "true"
+            api_key = os.getenv("ALPACA_API_KEY")
+            secret = os.getenv("ALPACA_SECRET_KEY")
+            paper_trading = os.getenv("ALPACA_PAPER", "true").lower() == "true"
 
             if not api_key or not secret:
-                raise ValueError("Binance API credentials not configured")
+                raise ValueError("Alpaca API credentials not configured")
 
-            config = {
-                "apiKey": api_key,
-                "secret": secret,
-                "enableRateLimit": True,
-            }
+            # Initialize Alpaca wrapper
+            self.exchange = AlpacaWrapper(paper=paper_trading)
 
-            if sandbox:
-                config["test"] = True
-                logger.info("Using Binance testnet")
-
-            # Choose exchange type based on configuration
-            if self.use_futures:
-                config["options"] = {"defaultType": "future"}  # Configure for futures
-                logger.info("Using Binance Futures API")
-            else:
-                logger.info("Using Binance Spot API")
-
-            self.exchange = ccxt.binance(config)
-
+            # Load markets
+            self.exchange.load_markets()
+            
             # Test connection
             _ = self.exchange.fetch_balance()  # Test connection only
-            logger.info("✅ Exchange connection established")
-
-            # Deployment notification disabled to prevent spam
-            # await notifier.send_email(
-            #     subject="🚀 Crypto Bot Deployed on Railway",
-            #     body=f"Bot deployed: {'Paper Trading' if self.dry_run else 'Live Trading'}"
-            # )
+            logger.info("✅ Alpaca exchange connection established")
+            logger.info(f"Paper trading: {paper_trading}")
 
             return True
 
         except Exception as e:
-            logger.error(f"Failed to setup exchange: {e}")
+            logger.error(f"Failed to setup Alpaca exchange: {e}")
             await notifier.send_risk_alert(
                 message=f"Exchange setup failed: {e}", severity="CRITICAL"
             )
@@ -235,7 +217,7 @@ class CryptoTradingBot:
 
                 return df
 
-            except ccxt.NetworkError as e:
+            except Exception as e:
                 if retry < 4:
                     wait_time = 2**retry
                     logger.warning(
@@ -247,9 +229,8 @@ class CryptoTradingBot:
                         f"Failed to fetch data for {symbol} after 5 retries: {e}"
                     )
                     return pd.DataFrame()
-            except Exception as e:
-                logger.error(f"Failed to fetch data for {symbol}: {e}")
-                return pd.DataFrame()
+        
+        return pd.DataFrame()
 
     async def generate_signals(self, symbol: str) -> Dict[str, Any]:
         """Generate signals for a symbol."""
@@ -288,11 +269,11 @@ class CryptoTradingBot:
             return {}
 
     async def get_account_balance(self) -> float:
-        """Get current USDT balance."""
+        """Get current USD balance."""
         try:
             balance = self.exchange.fetch_balance()
-            usdt_balance = balance.get("USDT", {}).get("free", 0)
-            return float(usdt_balance)
+            usd_balance = balance.get("USD", {}).get("free", 0)
+            return float(usd_balance)
         except Exception as e:
             logger.error(f"Failed to get balance: {e}")
             return 0.0
