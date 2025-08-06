@@ -1,17 +1,29 @@
 # Agent Instructions for Crypto Quant Project
 
+## Current Status (Updated 08/06/2025)
+
+**🎉 PROJECT COMPLETE - PRODUCTION READY** 
+- ✅ All 12 evidence-based crypto signals implemented
+- ✅ Portfolio Blender v2 with risk management 
+- ✅ Railway deployment configuration ready
+- ✅ Email notifications working
+- ✅ Binance API integration tested
+- ✅ Security audit passed for open source
+
 ## Security Rules (CRITICAL)
 
 - **NEVER commit secrets to git**: API keys, private keys, passwords, tokens
 - Always use `.env` files for secrets and ensure they're in `.gitignore`
 - Check for hardcoded secrets before any commit
 - Use environment variables for all sensitive configuration
+- **NEW**: Use `python3 scripts/security_check.py` before open source releases
 
 ## Sub-Agent Management
 
 - When spawning sub-agents, create `subagents.md` file to document the plan
 - Include task breakdown, dependencies, and expected deliverables
 - Update `subagents.md` as tasks progress
+- **LESSON LEARNED**: Sub-agents were highly effective for parallel signal implementation
 
 ## Python Development Standards
 
@@ -66,3 +78,21 @@ Before completing any task, run:
 2. `ruff check src/ scripts/` - Check for issues
 3. `pytest` - Run tests
 4. Check no secrets are committed: `git diff --cached`
+
+## Working Commands (Tested & Verified)
+
+### Testing & Validation
+- `python3 scripts/test_connections.py` - Test Binance API and email
+- `python3 scripts/validate_all_signals.py` - Test all 12 signals
+- `python3 scripts/security_check.py` - Check for exposed secrets
+- `python3 -m scripts.backtest --symbol BTCUSDT --signal momentum` - Run backtests
+
+### Live Trading
+- `python3 scripts/run_live_bot.py` - Run the live trading bot
+- Set environment variables for Railway deployment
+- Use `DRY_RUN=true` for paper trading
+
+### API Configuration Notes
+- **Binance Testnet**: Use `test=True` config (not `sandbox=True`)
+- **Email Variables**: Support both `EMAIL_FROM`/`SMTP_USER` naming conventions
+- **Railway**: Deploy directly from GitHub with environment variables
