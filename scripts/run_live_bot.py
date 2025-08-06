@@ -301,7 +301,7 @@ class CryptoTradingBot:
 
             # Count valid signals (lowered threshold to be more active)
             valid_signals = [
-                s for s in signals.values() if abs(s.get("final_position", 0)) >= 0.05
+                s for s in signals.values() if abs(s.get("final_position", 0)) >= 0.02
             ]
             if not valid_signals:
                 logger.info("No valid trading signals generated")
