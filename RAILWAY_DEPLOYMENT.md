@@ -21,14 +21,14 @@ In Railway dashboard → Variables tab, add:
 
 ```bash
 # Binance API (use your existing values)
-BINANCE_API_KEY=your_testnet_api_key
-BINANCE_SECRET=your_testnet_secret
+BINANCE_API_KEY=your_testnet_api_key_here
+BINANCE_SECRET=your_testnet_secret_here
 BINANCE_SANDBOX=true
 
 # Email (use your existing values)
-EMAIL_FROM=harrisoncharlesworth@gmail.com
-EMAIL_TO=harrisoncharlesworth@gmail.com
-EMAIL_PASSWORD=zyhecnfsygfaawsd
+EMAIL_FROM=your_email@gmail.com
+EMAIL_TO=your_email@gmail.com
+EMAIL_PASSWORD=your_gmail_app_password_here
 SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587
 
