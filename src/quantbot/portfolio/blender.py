@@ -29,7 +29,7 @@ class BlenderConfig:
 
     conflict_resolution: ConflictResolution = ConflictResolution.CONFIDENCE_WEIGHTED
     max_position_size: float = 1.0  # Maximum absolute position (-1 to +1)
-    min_signal_confidence: float = 0.3  # Filter out low confidence signals
+    min_signal_confidence: float = 0.1  # Filter out low confidence signals
     correlation_lookback: int = 100  # Periods for signal correlation estimation
     risk_budget_per_signal: Dict[str, float] = None  # Signal-specific risk budgets
     decay_factor: float = 0.95  # Exponential decay for historical signal performance

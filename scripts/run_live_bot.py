@@ -301,7 +301,7 @@ class CryptoTradingBot:
 
             # Count valid signals (lowered threshold to be more active)
             valid_signals = [
-                s for s in signals.values() if abs(s.get("final_position", 0)) >= 0.02
+                s for s in signals.values() if abs(s.get("final_position", 0)) >= 0.005
             ]
             if not valid_signals:
                 logger.info("No valid trading signals generated")
@@ -390,32 +390,53 @@ class CryptoTradingBot:
             realised_pnl = 0.0  # TODO: Calculate from completed trades
             _ = 0.0  # unrealised_pnl - TODO: Calculate from open positions
 
-            # Mock open positions for paper trading
+            # Get actual open positions from Alpaca
             open_positions = []
-            if self.recent_trades:
-                # Show last few trades as "open positions" for demo
-                for trade in self.recent_trades[-5:]:
+            try:
+                positions = self.exchange.trading_client.get_all_positions()
+                for position in positions:
                     open_positions.append(
                         {
-                            "symbol": trade["symbol"],
-                            "side": trade["action"].upper(),
-                            "size": trade["size"],
-                            "entry_price": trade["price"],
-                            "current_price": trade["price"]
-                            * (
-                                1 + np.random.uniform(-0.02, 0.02)
-                            ),  # Mock price movement
-                            "unrealised_pnl": np.random.uniform(-20, 50),  # Mock P&L
+                            "symbol": position.symbol,
+                            "side": "LONG" if float(position.qty) > 0 else "SHORT",
+                            "size": float(position.market_value),
+                            "entry_price": float(position.avg_entry_price),
+                            "current_price": float(position.market_value) / float(position.qty) if float(position.qty) != 0 else 0,
+                            "unrealised_pnl": float(position.unrealized_pl),
                         }
                     )
+                
+                # Calculate total unrealised P&L from actual positions
+                unrealised_pnl = sum(float(pos.unrealized_pl) for pos in positions)
+                
+            except Exception as e:
+                logger.warning(f"Could not fetch real positions, using paper trades: {e}")
+                # Fallback to mock data for paper trading
+                if self.recent_trades:
+                    # Show last few trades as "open positions" for demo
+                    for trade in self.recent_trades[-5:]:
+                        open_positions.append(
+                            {
+                                "symbol": trade["symbol"],
+                                "side": trade["action"].upper(),
+                                "size": trade["size"],
+                                "entry_price": trade["price"],
+                                "current_price": trade["price"]
+                                * (
+                                    1 + np.random.uniform(-0.02, 0.02)
+                                ),  # Mock price movement
+                                "unrealised_pnl": np.random.uniform(-20, 50),  # Mock P&L
+                            }
+                        )
+                unrealised_pnl = sum(
+                    pos.get("unrealised_pnl", 0) for pos in open_positions
+                )
 
             # Send digest
             await notifier.send_digest(
                 account_equity=balance,
                 realised_pnl=realised_pnl,
-                unrealised_pnl=sum(
-                    pos.get("unrealised_pnl", 0) for pos in open_positions
-                ),
+                unrealised_pnl=unrealised_pnl,
                 open_positions=open_positions,
                 recent_signals=self.recent_signals,
                 period="8-hour",
@@ -471,6 +492,9 @@ class CryptoTradingBot:
                     signal_data = await self.generate_signals(symbol)
                     if signal_data:
                         all_signals[symbol] = signal_data
+                        logger.info(f"📈 {symbol}: position={signal_data.get('final_position', 0):.3f}, confidence={signal_data.get('confidence', 0):.1%}")
+                    else:
+                        logger.info(f"📊 {symbol}: No signals generated")
 
                 # Execute trades
                 if all_signals:
