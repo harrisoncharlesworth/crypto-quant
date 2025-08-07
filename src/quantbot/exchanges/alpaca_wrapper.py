@@ -136,8 +136,8 @@ class AlpacaWrapper:
             bars = self.data_client.get_crypto_bars(request)
             
             ohlcv_data = []
-            if alpaca_symbol in bars:
-                for bar in bars[alpaca_symbol]:
+            if alpaca_symbol in bars.data:
+                for bar in bars.data[alpaca_symbol]:
                     ohlcv_data.append([
                         int(bar.timestamp.timestamp() * 1000),  # timestamp
                         float(bar.open),    # open
