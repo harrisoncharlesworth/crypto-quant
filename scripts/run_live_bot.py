@@ -356,14 +356,7 @@ class CryptoTradingBot:
                     }
                     self.recent_trades.append(trade_info)
 
-                    # Send notification
-                    await notifier.send_trade_alert(
-                        symbol=symbol,
-                        action=action.lower(),
-                        price=current_price,
-                        size=position_value,
-                        reason=f"Signal: {position:.3f}, Confidence: {confidence:.1%} (PAPER)",
-                    )
+                    # Trade notifications now consolidated in digest emails only
                 else:
                     # TODO: Implement actual live trading
                     logger.info(
@@ -376,9 +369,11 @@ class CryptoTradingBot:
 
         except Exception as e:
             logger.error(f"Trade execution failed: {e}")
-            await notifier.send_risk_alert(
-                message=f"Trade execution error: {e}", severity="ERROR"
-            )
+            # Only send critical trade execution errors, not routine issues
+            if "connection" in str(e).lower() or "api" in str(e).lower():
+                await notifier.send_risk_alert(
+                    message=f"Critical trade execution error: {e}", severity="ERROR"
+                )
 
     async def send_portfolio_digest(self):
         """Send comprehensive portfolio digest email."""
@@ -467,10 +462,8 @@ class CryptoTradingBot:
 
                     self.main_task = asyncio.create_task(self.trading_loop())
 
-                    await notifier.send_risk_alert(
-                        message="Trading loop was stuck and has been restarted",
-                        severity="WARNING",
-                    )
+                    # Only send critical alerts - restart info included in digest
+                    logger.warning("Trading loop restarted - will be reported in next digest")
 
                 await asyncio.sleep(60)  # Check every minute
 
@@ -514,9 +507,11 @@ class CryptoTradingBot:
                 logger.error(f"Trading loop error: {e}")
                 logger.error(traceback.format_exc())
 
-                await notifier.send_risk_alert(
-                    message=f"Trading loop error: {e}", severity="ERROR"
-                )
+                # Only send alerts for critical errors, not routine network issues
+                if "setup" in str(e).lower() or "critical" in str(e).lower():
+                    await notifier.send_risk_alert(
+                        message=f"Critical trading loop error: {e}", severity="ERROR"
+                    )
 
                 # Wait before retrying
                 await asyncio.sleep(60)
