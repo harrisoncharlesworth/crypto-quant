@@ -43,12 +43,12 @@ class SignalTypeConfig:
 
 @dataclass 
 class RiskLimits:
-    """Comprehensive risk limits for portfolio."""
-    max_net_exposure: float = 0.30  # Maximum net directional exposure
-    max_gross_leverage: float = 3.0  # Maximum gross leverage
-    min_leverage: float = 1.0  # Minimum leverage floor
-    max_single_position: float = 0.10  # Max position per individual signal
-    max_correlated_exposure: float = 0.25  # Max exposure to highly correlated signals
+    """Comprehensive risk limits for portfolio - BULL MARKET OPTIMIZED."""
+    max_net_exposure: float = 0.40  # INCREASED from 0.30 for bull market
+    max_gross_leverage: float = 4.0  # INCREASED from 3.0 for bull market
+    min_leverage: float = 1.2  # INCREASED minimum for active positioning
+    max_single_position: float = 0.12  # SLIGHTLY increased per signal
+    max_correlated_exposure: float = 0.20  # REDUCED for better diversification
 
 
 @dataclass
@@ -60,11 +60,11 @@ class BlenderConfigV2:
     min_signal_confidence: float = 0.3
     correlation_lookback: int = 100
     
-    # Signal type configurations
+    # Signal type configurations - BULL MARKET OPTIMIZED
     signal_type_configs: Dict[SignalType, SignalTypeConfig] = field(default_factory=lambda: {
-        SignalType.DIRECTIONAL: SignalTypeConfig(max_allocation=0.15, volatility_target=0.10),
-        SignalType.MARKET_NEUTRAL: SignalTypeConfig(max_allocation=0.20, volatility_target=0.08),
-        SignalType.OVERLAY: SignalTypeConfig(max_allocation=0.05, volatility_target=0.05)
+        SignalType.DIRECTIONAL: SignalTypeConfig(max_allocation=0.25, volatility_target=0.12),  # INCREASED allocation and vol target
+        SignalType.MARKET_NEUTRAL: SignalTypeConfig(max_allocation=0.15, volatility_target=0.08),  # REDUCED neutral weighting
+        SignalType.OVERLAY: SignalTypeConfig(max_allocation=0.08, volatility_target=0.05)  # SLIGHTLY increased overlay
     })
     
     # Risk management
@@ -416,7 +416,7 @@ class PortfolioBlenderV2:
     def _blend_directional_signals(
         self, directional_signals: Dict[str, SignalResult], weights: Dict[str, float]
     ) -> float:
-        """Blend directional signals with conflict resolution."""
+        """Blend directional signals with conflict resolution and trend amplification."""
         if not directional_signals:
             return 0.0
         
@@ -437,6 +437,19 @@ class PortfolioBlenderV2:
             # No conflict, simple weighted average
             net_position = sum(sig.value * weights.get(name, 0) 
                              for name, sig in directional_signals.items())
+        
+        # BULL MARKET ENHANCEMENT: Amplify strong trends
+        if abs(net_position) > 0.7:  # Strong signal threshold
+            # Check for momentum signal strength
+            momentum_weight = 0.0
+            if "time_series_momentum" in directional_signals:
+                momentum_signal = directional_signals["time_series_momentum"]
+                momentum_weight = momentum_signal.confidence * weights.get("time_series_momentum", 0)
+            
+            # Amplify position when strong momentum is present
+            if momentum_weight > 0.3:  # Strong momentum threshold
+                trend_amplifier = 1.0 + (momentum_weight * 0.5)  # Up to 50% amplification
+                net_position *= trend_amplifier
         
         return net_position
     
@@ -500,16 +513,23 @@ class PortfolioBlenderV2:
         market_neutral_pos: float,
         signal_weights: Dict[str, float]
     ) -> Tuple[float, float]:
-        """Apply comprehensive risk limits to final position."""
+        """Apply comprehensive risk limits with enhanced drawdown protection."""
+        
+        # ENHANCED DRAWDOWN PROTECTION
+        drawdown_adjustment = self._calculate_drawdown_adjustment()
+        position_size_multiplier = 1.0 - drawdown_adjustment
+        
+        # Apply drawdown protection to position
+        adjusted_position = net_position * position_size_multiplier
         
         # Net exposure limit
         final_position = max(
             -self.config.risk_limits.max_net_exposure,
-            min(self.config.risk_limits.max_net_exposure, net_position)
+            min(self.config.risk_limits.max_net_exposure, adjusted_position)
         )
         
         # Calculate gross exposure
-        gross_exposure = abs(directional_pos) + abs(market_neutral_pos)
+        gross_exposure = (abs(directional_pos) + abs(market_neutral_pos)) * position_size_multiplier
         
         # Gross leverage limit
         if gross_exposure > self.config.risk_limits.max_gross_leverage:
@@ -517,12 +537,13 @@ class PortfolioBlenderV2:
             final_position *= scale_factor
             gross_exposure = self.config.risk_limits.max_gross_leverage
         
-        # Minimum leverage floor
-        if gross_exposure < self.config.risk_limits.min_leverage:
+        # Minimum leverage floor (reduced during drawdowns)
+        min_leverage_adjusted = self.config.risk_limits.min_leverage * position_size_multiplier
+        if gross_exposure < min_leverage_adjusted:
             if gross_exposure > 0:
-                scale_factor = self.config.risk_limits.min_leverage / gross_exposure
+                scale_factor = min_leverage_adjusted / gross_exposure
                 final_position *= scale_factor
-                gross_exposure = self.config.risk_limits.min_leverage
+                gross_exposure = min_leverage_adjusted
         
         return final_position, gross_exposure
     
@@ -726,6 +747,34 @@ class PortfolioBlenderV2:
         if total_weight > 0:
             return {name: weight / total_weight for name, weight in weights.items()}
         return {name: 1.0 / len(weights) for name in weights.keys()} if weights else {}
+    
+    def _calculate_drawdown_adjustment(self) -> float:
+        """Calculate position size adjustment based on recent drawdown."""
+        if len(self.portfolio_snapshots) < 10:
+            return 0.0  # Not enough history
+            
+        # Calculate recent portfolio performance proxy
+        recent_snapshots = self.portfolio_snapshots[-20:]  # Last 20 snapshots
+        
+        # Use net exposure changes as proxy for performance
+        exposures = [abs(snapshot.net_exposure) for snapshot in recent_snapshots]
+        
+        if len(exposures) < 5:
+            return 0.0
+            
+        # Calculate drawdown metrics
+        peak_exposure = max(exposures[-10:])  # Peak in last 10 periods
+        current_exposure = exposures[-1]
+        
+        if peak_exposure > 0:
+            drawdown_ratio = (peak_exposure - current_exposure) / peak_exposure
+            
+            # Progressive drawdown adjustment (0-30% reduction)
+            if drawdown_ratio > 0.15:  # 15% drawdown threshold
+                adjustment = min(0.30, (drawdown_ratio - 0.15) * 2.0)  # Scale to max 30%
+                return adjustment
+        
+        return 0.0
     
     def _update_tracking_data(
         self, signals: Dict[str, SignalResult], portfolio_snapshot: PortfolioSnapshot
