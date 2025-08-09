@@ -21,7 +21,7 @@ signals:
     enabled: true
     lookback_days: 90
     skip_recent_days: 7
-    weight: 1.0
+    weight: 2.5  # INCREASED from 1.0 for bull market momentum
   
   funding_carry:
     enabled: true
@@ -37,9 +37,9 @@ signals:
   
   mean_reversion:
     enabled: true
-    zscore_threshold: 2.0
+    zscore_threshold: 2.5  # INCREASED threshold for bull market
     lookback_days: 3
-    weight: 0.8
+    weight: 0.6  # REDUCED for bull market focus
     
   vol_risk_premium:
     enabled: true
@@ -72,9 +72,9 @@ signals:
     weight: 1.0                    # Signal weight in portfolio blending
 
 risk:
-  max_leverage: 3.0
-  stop_loss_pct: 0.05
-  position_size_method: "fixed_risk"
+  max_leverage: 4.0  # INCREASED from 3.0 for bull market
+  stop_loss_pct: 0.03  # TIGHTENED from 0.05 for drawdown protection
+  position_size_method: "kelly_optimal"  # CHANGED for dynamic sizing
   
 notifications:
   email:
