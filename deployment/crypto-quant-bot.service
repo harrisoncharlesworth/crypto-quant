@@ -1,0 +1,43 @@
+[Unit]
+Description=Crypto Quant Trading Bot - Alpaca Paper Trading
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/crypto-quant-EB
+Environment=PYTHONPATH=/home/ubuntu/crypto-quant-EB/src
+Environment=ALPACA_PAPER=true
+Environment=DRY_RUN=false
+Environment=USE_FUTURES=true
+Environment=UPDATE_INTERVAL_MINUTES=5
+Environment=TRADING_SYMBOLS=BTCUSD,ETHUSD,SOLUSD,ADAUSD,LTCUSD,XRPUSD
+Environment=MAX_PORTFOLIO_ALLOCATION=0.80
+Environment=MAX_NET_EXPOSURE=0.30
+Environment=MAX_GROSS_LEVERAGE=2.5
+Environment=MAX_SINGLE_POSITION=0.10
+Environment=ENABLE_EMAIL_NOTIFICATIONS=true
+Environment=DIGEST_INTERVAL_HOURS=24
+Environment=LOG_LEVEL=INFO
+Environment=ENABLE_HEALTH_CHECKS=true
+
+# Set your Alpaca credentials here
+Environment=ALPACA_API_KEY=your_alpaca_api_key_here
+Environment=ALPACA_SECRET_KEY=your_alpaca_secret_key_here
+
+ExecStart=/usr/bin/python3 -u /home/ubuntu/crypto-quant-EB/scripts/run_live_bot.py
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/ubuntu/crypto-quant-EB/logs
+
+[Install]
+WantedBy=multi-user.target

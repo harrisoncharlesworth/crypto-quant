@@ -60,11 +60,11 @@ class BlenderConfigV2:
     min_signal_confidence: float = 0.3
     correlation_lookback: int = 100
     
-    # Signal type configurations - BULL MARKET OPTIMIZED
+    # Signal type configurations - PERFORMANCE OPTIMIZED
     signal_type_configs: Dict[SignalType, SignalTypeConfig] = field(default_factory=lambda: {
-        SignalType.DIRECTIONAL: SignalTypeConfig(max_allocation=0.25, volatility_target=0.12),  # INCREASED allocation and vol target
-        SignalType.MARKET_NEUTRAL: SignalTypeConfig(max_allocation=0.15, volatility_target=0.08),  # REDUCED neutral weighting
-        SignalType.OVERLAY: SignalTypeConfig(max_allocation=0.08, volatility_target=0.05)  # SLIGHTLY increased overlay
+        SignalType.DIRECTIONAL: SignalTypeConfig(max_allocation=0.30, volatility_target=0.12),  # INCREASED for top performers
+        SignalType.MARKET_NEUTRAL: SignalTypeConfig(max_allocation=0.18, volatility_target=0.08),  # SLIGHTLY increased
+        SignalType.OVERLAY: SignalTypeConfig(max_allocation=0.08, volatility_target=0.05)  # Maintained overlay
     })
     
     # Risk management

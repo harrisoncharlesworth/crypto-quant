@@ -12,13 +12,15 @@ from .base import SignalBase, SignalResult, SignalConfig
 class MomentumConfig(SignalConfig):
     """Configuration for momentum signal."""
 
-    lookback_days: int = 90  # 3-month momentum (30-90 days typical)
-    skip_recent_days: int = 7  # Skip last week to de-noise
-    ma_window: int = 200  # Moving average filter
-    min_periods: int = 100
-    volatility_target: float = 0.15  # 15% annualized volatility target
+    lookback_days: int = 45  # OPTIMIZED: Reduced for crypto speed
+    skip_recent_days: int = 3  # OPTIMIZED: Faster response
+    ma_window: int = 75  # OPTIMIZED: Shorter for crypto volatility
+    min_periods: int = 50  # REDUCED: Less data needed
+    volatility_target: float = 0.12  # OPTIMIZED: Lower target for consistency
     volatility_lookback: int = 30  # Days for volatility estimation
     enable_vol_targeting: bool = True  # Enable volatility targeting
+    enable_dynamic_params: bool = True  # NEW: Enable parameter adaptation
+    performance_lookback: int = 30  # NEW: Days for performance tracking
 
 
 class TimeSeriesMomentumSignal(SignalBase):
@@ -32,6 +34,12 @@ class TimeSeriesMomentumSignal(SignalBase):
     def __init__(self, config: MomentumConfig):
         super().__init__(config)
         self.config: MomentumConfig = config
+        self.performance_history = []  # Track signal performance
+        self.adaptive_params = {
+            'lookback_days': config.lookback_days,
+            'skip_recent_days': config.skip_recent_days,
+            'ma_window': config.ma_window
+        }
 
     async def generate(self, data: pd.DataFrame, symbol: str) -> SignalResult:
         """Generate momentum signal from price data."""
@@ -186,6 +194,27 @@ class TimeSeriesMomentumSignal(SignalBase):
 
         except Exception:
             return 1.0, None
+    
+    def update_performance(self, performance: float):
+        """Update performance tracking for adaptive parameters."""
+        self.performance_history.append(performance)
+        
+        # Keep only recent history
+        if len(self.performance_history) > self.config.performance_lookback:
+            self.performance_history = self.performance_history[-self.config.performance_lookback:]
+        
+        # Adaptive parameter adjustment based on performance
+        if self.config.enable_dynamic_params and len(self.performance_history) > 10:
+            recent_performance = np.mean(self.performance_history[-10:])
+            
+            if recent_performance < -0.02:  # Poor performance threshold
+                # Reduce lookback for faster response
+                self.adaptive_params['lookback_days'] = max(30, self.config.lookback_days - 5)
+                self.adaptive_params['skip_recent_days'] = max(1, self.config.skip_recent_days - 1)
+            elif recent_performance > 0.02:  # Good performance threshold
+                # Maintain or slightly increase lookback
+                self.adaptive_params['lookback_days'] = min(60, self.config.lookback_days + 2)
+                self.adaptive_params['skip_recent_days'] = min(5, self.config.skip_recent_days + 1)
 
     @classmethod
     def grid_search_parameters(cls, data: pd.DataFrame, symbol: str) -> Dict[str, Any]:

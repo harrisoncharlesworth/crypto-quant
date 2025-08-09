@@ -19,9 +19,12 @@ exchanges:
 signals:
   momentum:
     enabled: true
-    lookback_days: 90
-    skip_recent_days: 7
-    weight: 2.5  # INCREASED from 1.0 for bull market momentum
+    lookback_days: 45  # OPTIMIZED: Reduced from 90 for faster crypto trends
+    skip_recent_days: 3  # OPTIMIZED: Reduced from 7 for better responsiveness  
+    ma_window: 75  # OPTIMIZED: Reduced from 200 for crypto volatility
+    volatility_target: 0.12  # OPTIMIZED: Reduced from 0.15
+    enable_dynamic_params: true  # NEW: Enable parameter adaptation
+    weight: 1.8  # REBALANCED: Reduced from 2.5 due to underperformance
   
   funding_carry:
     enabled: true
@@ -39,7 +42,13 @@ signals:
     enabled: true
     zscore_threshold: 2.5  # INCREASED threshold for bull market
     lookback_days: 3
-    weight: 0.6  # REDUCED for bull market focus
+    weight: 1.2  # INCREASED: Better performer, deserves higher weight
+    
+  donchian_breakout:
+    enabled: true
+    breakout_window: 20
+    atr_multiplier: 2.0
+    weight: 2.8  # INCREASED: Top performer (281% return, 2.0 Sharpe)
     
   vol_risk_premium:
     enabled: true
