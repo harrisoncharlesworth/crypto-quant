@@ -33,8 +33,8 @@ class CryptoQuantDeployment:
         print("🔧 Setting up 24/7 Deployment Environment...")
         
         # Alpaca credentials
-        os.environ["ALPACA_API_KEY"] = "PKJYFI6XVZ9UGW85JFVP"
-        os.environ["ALPACA_SECRET_KEY"] = "HY2qdRNAX8TSONDcnsqPfNHUp7WzpeHzpsAdNEGZ"
+        os.environ["ALPACA_API_KEY"] = "***REDACTED***"
+os.environ["ALPACA_SECRET_KEY"] = "***REDACTED***"
         
         # Apply optimized configuration
         self.config.setup_environment()
@@ -90,8 +90,8 @@ class CryptoQuantDeployment:
 # Generated: {datetime.now():%Y-%m-%d %H:%M:%S}
 
 # Alpaca Configuration
-ALPACA_API_KEY=PKJYFI6XVZ9UGW85JFVP
-ALPACA_SECRET_KEY=HY2qdRNAX8TSONDcnsqPfNHUp7WzpeHzpsAdNEGZ
+ALPACA_API_KEY=***REDACTED***
+ALPACA_SECRET_KEY=***REDACTED***
 ALPACA_PAPER=true
 
 # Core Trading Settings

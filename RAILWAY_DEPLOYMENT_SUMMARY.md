@@ -72,8 +72,8 @@ Your crypto quant bot is now ready for Railway cloud deployment for true 24/7 op
 When deploying, make sure to set these environment variables in Railway:
 
 ```
-ALPACA_API_KEY=PKJYFI6XVZ9UGW85JFVP
-ALPACA_SECRET_KEY=HY2qdRNAX8TSONDcnsqPfNHUp7WzpeHzpsAdNEGZ
+ALPACA_API_KEY=***REDACTED***
+ALPACA_SECRET_KEY=***REDACTED***
 ALPACA_PAPER=true
 DRY_RUN=false
 USE_FUTURES=true

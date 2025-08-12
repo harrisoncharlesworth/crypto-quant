@@ -27,8 +27,8 @@ class OptimizedDeployment:
         print("🔧 Setting up Optimized Deployment Environment...")
         
         # Set Alpaca credentials (from previous deployment)
-        os.environ["ALPACA_API_KEY"] = "PKJYFI6XVZ9UGW85JFVP"
-        os.environ["ALPACA_SECRET_KEY"] = "HY2qdRNAX8TSONDcnsqPfNHUp7WzpeHzpsAdNEGZ"
+        os.environ["ALPACA_API_KEY"] = "***REDACTED***"
+os.environ["ALPACA_SECRET_KEY"] = "***REDACTED***"
         
         # Apply optimized configuration
         self.config.setup_environment()

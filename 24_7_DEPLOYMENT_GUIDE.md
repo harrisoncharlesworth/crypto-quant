@@ -31,8 +31,8 @@ This guide will help you deploy the optimized crypto quant bot to run 24/7 on yo
 ## 📋 Prerequisites
 
 ### ✅ Already Configured
-- **Alpaca API Key**: PKJYFI6XVZ9UGW85JFVP
-- **Alpaca Secret Key**: HY2qdRNAX8TSONDcnsqPfNHUp7WzpeHzpsAdNEGZ
+- **Alpaca API Key**: ***REDACTED***
+- **Alpaca Secret Key**: ***REDACTED***
 - **Paper Trading**: Enabled
 - **Strategic Recommendations**: Implemented
 - **Email Notifications**: Configured

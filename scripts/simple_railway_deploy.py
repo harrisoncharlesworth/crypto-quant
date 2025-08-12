@@ -22,8 +22,8 @@ def setup_environment():
     print("🔧 Setting up environment variables...")
     
     env_vars = {
-        "ALPACA_API_KEY": "PKJYFI6XVZ9UGW85JFVP",
-        "ALPACA_SECRET_KEY": "HY2qdRNAX8TSONDcnsqPfNHUp7WzpeHzpsAdNEGZ",
+        "ALPACA_API_KEY": "***REDACTED***",
+"ALPACA_SECRET_KEY": "***REDACTED***",
         "ALPACA_PAPER": "true",
         "DRY_RUN": "false",
         "USE_FUTURES": "true",
