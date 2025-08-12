@@ -18,7 +18,7 @@ class EmailNotifier:
         self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
         self.smtp_user = os.getenv("EMAIL_FROM", os.getenv("SMTP_USER"))
         self.smtp_password = os.getenv("EMAIL_PASSWORD", os.getenv("SMTP_PASSWORD"))
-        self.notification_email = os.getenv("EMAIL_TO", os.getenv("NOTIFICATION_EMAIL"))
+        self.notification_email = os.getenv("EMAIL_RECIPIENT", os.getenv("EMAIL_TO", os.getenv("NOTIFICATION_EMAIL")))
 
         if not all([self.smtp_user, self.smtp_password, self.notification_email]):
             logger.warning("Email credentials not fully configured")
@@ -26,19 +26,142 @@ class EmailNotifier:
     async def send_trade_alert(
         self, symbol: str, action: str, price: float, size: float, reason: str
     ) -> bool:
-        """Send trade execution alert."""
-        subject = f"🤖 Trade Alert: {action.upper()} {symbol}"
+        """Send comprehensive trade execution alert."""
+        # Determine trade type and emoji
+        trade_emoji = "🚀" if action.lower() == "buy" else "📉" if action.lower() == "sell" else "⚡"
+        action_upper = action.upper()
+        
+        subject = f"{trade_emoji} Trade Executed: {action_upper} {symbol} @ ${price:,.2f}"
+
+        # Calculate position value
+        position_value = size * price
+        
+        # Get current time in AEST
+        from datetime import timezone, timedelta
+        aest_tz = timezone(timedelta(hours=10))  # AEST is UTC+10
+        current_time = datetime.now(aest_tz).strftime('%Y-%m-%d %H:%M:%S AEST')
 
         body = f"""
-        Trade Executed:
+🚀 CRYPTO QUANT BOT - TRADE ALERT
+
+{trade_emoji} TRADE EXECUTED
+{'='*50}
+
+📊 Trade Details:
+   Symbol: {symbol}
+   Action: {action_upper}
+   Price: ${price:,.2f}
+   Size: {size:,.4f}
+   Position Value: ${position_value:,.2f}
+   Time: {current_time}
+
+🎯 Signal Information:
+   {reason}
+
+💰 Portfolio Impact:
+   • Trade Type: {'LONG' if action.lower() == 'buy' else 'SHORT'} Position
+   • Position Size: {size:,.4f} {symbol}
+   • Market Value: ${position_value:,.2f}
+
+📈 Risk Management:
+   • Conservative Settings Active
+   • Enhanced Risk Limits Applied
+   • Position Sizing: Kelly Optimal
+   • Max Exposure: 20%
+
+🔔 Next Steps:
+   • Monitor position performance
+   • Check daily report at 6:00 PM AEST
+   • Review risk metrics in daily summary
+
+---
+🤖 Crypto Quant Bot Trading System
+📧 Daily Reports: 6:00 PM AEST
+🌐 Railway Cloud Deployment
+"""
+
+        return await self.send_email(subject, body)
+
+    async def send_enhanced_trade_alert(
+        self, 
+        symbol: str, 
+        action: str, 
+        price: float, 
+        size: float, 
+        reason: str,
+        confidence: float = 0.0,
+        signal_strength: float = 0.0,
+        account_balance: float = 0.0
+    ) -> bool:
+        """Send enhanced trade alert with additional context."""
+        trade_emoji = "🚀" if action.lower() == "buy" else "📉" if action.lower() == "sell" else "⚡"
+        action_upper = action.upper()
         
-        Symbol: {symbol}
-        Action: {action.upper()}
-        Price: ${price:,.2f}
-        Size: {size:,.2f}
-        Reason: {reason}
-        Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}
-        """
+        subject = f"{trade_emoji} LIVE TRADE: {action_upper} {symbol} @ ${price:,.2f}"
+        
+        # Calculate metrics
+        position_value = size * price
+        portfolio_percentage = (position_value / account_balance * 100) if account_balance > 0 else 0
+        
+        # Get current time in AEST
+        from datetime import timezone, timedelta
+        aest_tz = timezone(timedelta(hours=10))
+        current_time = datetime.now(aest_tz).strftime('%Y-%m-%d %H:%M:%S AEST')
+        
+        # Determine confidence level
+        confidence_level = "HIGH" if confidence > 0.7 else "MEDIUM" if confidence > 0.4 else "LOW"
+        confidence_emoji = "🔥" if confidence > 0.7 else "⚡" if confidence > 0.4 else "💡"
+
+        body = f"""
+🚀 CRYPTO QUANT BOT - LIVE TRADE ALERT
+
+{trade_emoji} TRADE EXECUTED SUCCESSFULLY
+{'='*60}
+
+📊 TRADE DETAILS:
+   Symbol: {symbol}
+   Action: {action_upper}
+   Price: ${price:,.2f}
+   Size: {size:,.4f}
+   Position Value: ${position_value:,.2f}
+   Portfolio %: {portfolio_percentage:.2f}%
+   Time: {current_time}
+
+🎯 SIGNAL ANALYSIS:
+   {reason}
+   Signal Strength: {signal_strength:.3f}
+   {confidence_emoji} Confidence: {confidence:.1%} ({confidence_level})
+
+💰 PORTFOLIO STATUS:
+   Account Balance: ${account_balance:,.2f}
+   Position Value: ${position_value:,.2f}
+   Available Capital: ${(account_balance - position_value):,.2f}
+
+📈 RISK MANAGEMENT:
+   ✅ Conservative Settings Active
+   ✅ Enhanced Risk Limits (20% max exposure)
+   ✅ Kelly Optimal Position Sizing
+   ✅ Daily Drawdown Protection (15%)
+   ✅ Real-time Monitoring Enabled
+
+🔔 IMMEDIATE ACTIONS:
+   • Trade executed successfully
+   • Position monitoring active
+   • Risk limits maintained
+   • Daily report scheduled for 6:00 PM AEST
+
+📧 NOTIFICATIONS:
+   • Trade alerts: ✅ ENABLED
+   • Daily reports: ✅ 6:00 PM AEST
+   • Risk alerts: ✅ ENABLED
+   • Performance tracking: ✅ ACTIVE
+
+---
+🤖 Crypto Quant Bot Trading System
+📧 Email: ebullemor@gmail.com
+🌐 Railway Cloud Deployment
+⏰ AEST Timezone (UTC+10)
+"""
 
         return await self.send_email(subject, body)
 

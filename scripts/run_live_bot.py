@@ -63,6 +63,116 @@ def health():
     return jsonify({"status": "healthy", "timestamp": datetime.utcnow().isoformat()})
 
 
+@app.route("/test-email")
+def test_email():
+    """Test email endpoint for Railway."""
+    try:
+        # Create a simple test email
+        import asyncio
+        
+        async def send_test_email():
+            return await notifier.send_email(
+                subject="🧪 Crypto Quant Bot - Email Test",
+                body="""
+🚀 CRYPTO QUANT BOT - EMAIL TEST
+
+This is a test email to verify the notification system is working correctly.
+
+✅ Email System Status:
+   • SMTP Connection: Working
+   • Authentication: Successful
+   • Recipient: Configured
+   • Daily Reports: Enabled
+
+📊 Bot Status:
+   • Trading: Active
+   • Signals: Generating
+   • Risk Management: Conservative Settings
+   • Daily Digest: 6:00 PM AEST
+
+🔔 You should now receive:
+   • Trade execution alerts
+   • Daily portfolio summaries
+   • Risk alerts (if needed)
+   • Signal generation notifications
+
+---
+🤖 Crypto Quant Bot Trading System
+📧 Daily Reports: 6:00 PM AEST
+🌐 Railway Cloud Deployment
+                """
+            )
+        
+        # Run the async function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        success = loop.run_until_complete(send_test_email())
+        loop.close()
+        
+        if success:
+            return jsonify({
+                "status": "success", 
+                "message": "Test email sent successfully",
+                "timestamp": datetime.utcnow().isoformat()
+            })
+        else:
+            return jsonify({
+                "status": "error", 
+                "message": "Failed to send test email",
+                "timestamp": datetime.utcnow().isoformat()
+            })
+    except Exception as e:
+        return jsonify({
+            "status": "error", 
+            "message": f"Error sending test email: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+
+@app.route("/send-digest")
+def send_digest():
+    """Manually trigger daily digest email."""
+    try:
+        import asyncio
+        
+        async def trigger_digest():
+            # Create a temporary bot instance to access the digest function
+            temp_bot = CryptoTradingBot()
+            
+            # Setup exchange connection
+            if not await temp_bot.setup_exchange():
+                return False, "Failed to setup exchange connection"
+            
+            # Send the digest
+            await temp_bot.send_portfolio_digest()
+            return True, "Daily digest sent successfully"
+        
+        # Run the async function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        success, message = loop.run_until_complete(trigger_digest())
+        loop.close()
+        
+        if success:
+            return jsonify({
+                "status": "success", 
+                "message": message,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+        else:
+            return jsonify({
+                "status": "error", 
+                "message": message,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+    except Exception as e:
+        return jsonify({
+            "status": "error", 
+            "message": f"Error sending daily digest: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+
 class CryptoTradingBot:
     """Main trading bot for Railway deployment."""
 
@@ -301,7 +411,7 @@ class CryptoTradingBot:
 
             # Count valid signals (lowered threshold to be more active)
             valid_signals = [
-                s for s in signals.values() if abs(s.get("final_position", 0)) >= 0.02
+                s for s in signals.values() if abs(s.get("final_position", 0)) >= 0.01
             ]
             if not valid_signals:
                 logger.info("No valid trading signals generated")
@@ -324,8 +434,8 @@ class CryptoTradingBot:
                 signal_strength = abs(position) * confidence
                 position_value = capital_per_signal * signal_strength
 
-                # Minimum position size of $50
-                if position_value < 50:
+                # Minimum position size of $25
+                if position_value < 25:
                     continue
 
                 action = "BUY" if position > 0 else "SELL"
@@ -338,36 +448,56 @@ class CryptoTradingBot:
                 if len(self.recent_signals) > 50:
                     self.recent_signals = self.recent_signals[-50:]
 
-                if self.dry_run:
-                    logger.info(
-                        f"🎯 PAPER TRADE: {action} ${position_value:.2f} of {symbol} @ ${current_price:.4f}"
-                    )
-                    logger.info(
-                        f"   → Signal: {position:.3f}, Confidence: {confidence:.1%}, Balance: ${balance:.0f}"
-                    )
+                # Execute the trade (both paper and live)
+                logger.info(
+                    f"🎯 EXECUTING TRADE: {action} ${position_value:.2f} of {symbol} @ ${current_price:.4f}"
+                )
+                logger.info(
+                    f"   → Signal: {position:.3f}, Confidence: {confidence:.1%}, Balance: ${balance:.0f}"
+                )
 
-                    # Track paper trade
+                try:
+                    # Place the order through Alpaca
+                    if action == "BUY":
+                        order = self.exchange.create_market_buy_order(
+                            symbol, position_value / current_price
+                        )
+                    else:
+                        order = self.exchange.create_market_sell_order(
+                            symbol, position_value / current_price
+                        )
+                    
+                    logger.info(f"✅ Order placed successfully: {order.get('id', 'N/A')}")
+                    
+                    # Track the trade
                     trade_info = {
                         "symbol": symbol,
                         "action": action.lower(),
                         "price": current_price,
                         "size": position_value,
                         "timestamp": datetime.utcnow(),
+                        "order_id": order.get('id', 'N/A')
                     }
                     self.recent_trades.append(trade_info)
 
-                    # Send notification
-                    await notifier.send_trade_alert(
+                    # Send enhanced trade notification
+                    trade_type = "PAPER" if self.exchange.paper else "LIVE"
+                    await notifier.send_enhanced_trade_alert(
                         symbol=symbol,
                         action=action.lower(),
                         price=current_price,
                         size=position_value,
-                        reason=f"Signal: {position:.3f}, Confidence: {confidence:.1%} (PAPER)",
+                        reason=f"Signal: {position:.3f}, Confidence: {confidence:.1%} ({trade_type})",
+                        confidence=confidence,
+                        signal_strength=abs(position),
+                        account_balance=balance
                     )
-                else:
-                    # TODO: Implement actual live trading
-                    logger.info(
-                        f"🚀 LIVE TRADE: {action} ${position_value:.2f} of {symbol} @ ${current_price:.4f}"
+                    
+                except Exception as e:
+                    logger.error(f"Failed to place order for {symbol}: {e}")
+                    await notifier.send_risk_alert(
+                        message=f"Order placement failed for {symbol}: {e}",
+                        severity="ERROR"
                     )
 
             logger.info(

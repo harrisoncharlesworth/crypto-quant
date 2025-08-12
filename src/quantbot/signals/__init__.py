@@ -13,14 +13,48 @@ from .x_exchange_funding import (
     XExchangeFundingDispersionSignal,
     XExchangeFundingConfig,
 )
-from .vol_risk_premium import (
-    VolatilityRiskPremiumSignal,
-    VolRiskPremiumConfig,
-)
-from .skew_whipsaw import SkewWhipsawSignal, SkewWhipsawConfig
-from .ssr import StablecoinSupplyRatioSignal, SSRConfig
-from .mvrv import MVRVSignal, MVRVConfig
 
+# Handle optional dependencies gracefully
+try:
+    from .vol_risk_premium import (
+        VolatilityRiskPremiumSignal,
+        VolRiskPremiumConfig,
+    )
+    VOL_RISK_PREMIUM_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: vol_risk_premium not available: {e}")
+    VOL_RISK_PREMIUM_AVAILABLE = False
+    VolatilityRiskPremiumSignal = None
+    VolRiskPremiumConfig = None
+
+try:
+    from .skew_whipsaw import SkewWhipsawSignal, SkewWhipsawConfig
+    SKEW_WHIPSAW_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: skew_whipsaw not available: {e}")
+    SKEW_WHIPSAW_AVAILABLE = False
+    SkewWhipsawSignal = None
+    SkewWhipsawConfig = None
+
+try:
+    from .ssr import StablecoinSupplyRatioSignal, SSRConfig
+    SSR_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: ssr not available: {e}")
+    SSR_AVAILABLE = False
+    StablecoinSupplyRatioSignal = None
+    SSRConfig = None
+
+try:
+    from .mvrv import MVRVSignal, MVRVConfig
+    MVRV_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: mvrv not available: {e}")
+    MVRV_AVAILABLE = False
+    MVRVSignal = None
+    MVRVConfig = None
+
+# Build __all__ list dynamically based on available modules
 __all__ = [
     # Base classes
     "SignalBase",
@@ -48,16 +82,17 @@ __all__ = [
     # Cross-exchange funding signals
     "XExchangeFundingDispersionSignal",
     "XExchangeFundingConfig",
-    # Options volatility signals
-    "VolatilityRiskPremiumSignal",
-    "VolRiskPremiumConfig",
-    # Skew whipsaw signals
-    "SkewWhipsawSignal",
-    "SkewWhipsawConfig",
-    # Stablecoin Supply Ratio signals
-    "StablecoinSupplyRatioSignal",
-    "SSRConfig",
-    # MVRV Z-Score signals
-    "MVRVSignal",
-    "MVRVConfig",
 ]
+
+# Add optional signals if available
+if VOL_RISK_PREMIUM_AVAILABLE:
+    __all__.extend(["VolatilityRiskPremiumSignal", "VolRiskPremiumConfig"])
+
+if SKEW_WHIPSAW_AVAILABLE:
+    __all__.extend(["SkewWhipsawSignal", "SkewWhipsawConfig"])
+
+if SSR_AVAILABLE:
+    __all__.extend(["StablecoinSupplyRatioSignal", "SSRConfig"])
+
+if MVRV_AVAILABLE:
+    __all__.extend(["MVRVSignal", "MVRVConfig"])
