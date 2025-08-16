@@ -187,7 +187,9 @@ class CryptoTradingBot:
 
             risk_limits = RiskLimits(max_net_exposure=0.30)
             blender_config = BlenderConfigV2(
-                allocation_method=AllocationMethod.RISK_PARITY, risk_limits=risk_limits
+                allocation_method=AllocationMethod.RISK_PARITY, 
+                risk_limits=risk_limits,
+                min_signal_confidence=0.10  # Lower threshold for more active trading
             )
             self.blender = PortfolioBlenderV2(blender_config)
 
@@ -324,8 +326,10 @@ class CryptoTradingBot:
                 signal_strength = abs(position) * confidence
                 position_value = capital_per_signal * signal_strength
 
-                # Minimum position size of $50
-                if position_value < 50:
+                # Minimum position size (configurable via env)
+                min_position_value = float(os.getenv("MIN_POSITION_VALUE", "25"))  # Lower from $50 to $25
+                if position_value < min_position_value:
+                    logger.debug(f"Skipping {symbol}: position value ${position_value:.2f} below minimum ${min_position_value}")
                     continue
 
                 action = "BUY" if position > 0 else "SELL"
