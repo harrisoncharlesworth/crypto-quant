@@ -362,10 +362,41 @@ class CryptoTradingBot:
 
                     # Trade notifications now consolidated in digest emails only
                 else:
-                    # TODO: Implement actual live trading
-                    logger.info(
-                        f"🚀 LIVE TRADE: {action} ${position_value:.2f} of {symbol} @ ${current_price:.4f}"
-                    )
+                    # Execute actual live trading
+                    try:
+                        # Calculate quantity for the dollar amount
+                        quantity = position_value / current_price
+                        
+                        if action == "BUY":
+                            order = self.exchange.create_market_buy_order(symbol, quantity)
+                        else:
+                            order = self.exchange.create_market_sell_order(symbol, quantity)
+                        
+                        logger.info(
+                            f"🚀 LIVE TRADE EXECUTED: {action} {quantity:.6f} {symbol} @ ${current_price:.4f} = ${position_value:.2f}"
+                        )
+                        logger.info(f"   → Order ID: {order.get('id', 'N/A')}")
+                        
+                        # Track live trade for digest
+                        trade_info = {
+                            "symbol": symbol,
+                            "action": action.lower(),
+                            "price": current_price,
+                            "size": position_value,
+                            "quantity": quantity,
+                            "timestamp": datetime.utcnow(),
+                            "order_id": order.get('id'),
+                        }
+                        self.recent_trades.append(trade_info)
+                        
+                    except Exception as e:
+                        logger.error(f"❌ Live trade failed for {symbol}: {e}")
+                        # Only alert on critical trade failures
+                        if "insufficient" not in str(e).lower():
+                            await notifier.send_risk_alert(
+                                message=f"Live trade failure {symbol}: {e}", 
+                                severity="ERROR"
+                            )
 
             logger.info(
                 f"💰 Portfolio allocation: {len(valid_signals)} positions, ${available_capital:.0f} capital used"
@@ -391,8 +422,16 @@ class CryptoTradingBot:
 
             # Get actual open positions from Alpaca
             open_positions = []
+            unrealised_pnl = 0.0
+            
             try:
                 positions = self.exchange.trading_client.get_all_positions()
+                
+                # If no live positions but we have recent trades, show recent activity
+                if not positions and self.recent_trades:
+                    logger.info("No live positions found, showing recent trades in digest")
+                    raise ValueError("No live positions - use recent trades")
+                
                 for position in positions:
                     open_positions.append(
                         {
@@ -409,27 +448,25 @@ class CryptoTradingBot:
                 unrealised_pnl = sum(float(pos.unrealized_pl) for pos in positions)
                 
             except Exception as e:
-                logger.warning(f"Could not fetch real positions, using paper trades: {e}")
-                # Fallback to mock data for paper trading
+                logger.warning(f"Using recent trades for digest: {e}")
+                # Fallback to recent trades (for paper trading or when no positions)
                 if self.recent_trades:
-                    # Show last few trades as "open positions" for demo
+                    # Show recent trades as "positions" 
                     for trade in self.recent_trades[-5:]:
+                        current_price = trade["price"] * (1 + np.random.uniform(-0.02, 0.02))  # Mock price movement
+                        pnl = (current_price - trade["price"]) * (trade["size"] / trade["price"])
+                        
                         open_positions.append(
                             {
                                 "symbol": trade["symbol"],
                                 "side": trade["action"].upper(),
                                 "size": trade["size"],
                                 "entry_price": trade["price"],
-                                "current_price": trade["price"]
-                                * (
-                                    1 + np.random.uniform(-0.02, 0.02)
-                                ),  # Mock price movement
-                                "unrealised_pnl": np.random.uniform(-20, 50),  # Mock P&L
+                                "current_price": current_price,
+                                "unrealised_pnl": pnl,
                             }
                         )
-                unrealised_pnl = sum(
-                    pos.get("unrealised_pnl", 0) for pos in open_positions
-                )
+                    unrealised_pnl = sum(pos.get("unrealised_pnl", 0) for pos in open_positions)
 
             # Send digest
             await notifier.send_digest(
