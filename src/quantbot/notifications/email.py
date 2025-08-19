@@ -14,7 +14,9 @@ class EmailNotifier:
 
     def __init__(self):
         # Support both old and new variable names for compatibility
-        self.smtp_host = os.getenv("SMTP_SERVER", os.getenv("SMTP_HOST", "smtp.gmail.com"))
+        self.smtp_host = os.getenv(
+            "SMTP_SERVER", os.getenv("SMTP_HOST", "smtp.gmail.com")
+        )
         self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
         self.smtp_user = os.getenv("EMAIL_FROM", os.getenv("SMTP_USER"))
         self.smtp_password = os.getenv("EMAIL_PASSWORD", os.getenv("SMTP_PASSWORD"))
@@ -82,20 +84,20 @@ class EmailNotifier:
         return await self.send_email(subject, body)
 
     async def send_digest(
-        self, 
+        self,
         account_equity: float,
-        realised_pnl: float, 
+        realised_pnl: float,
         unrealised_pnl: float,
         open_positions: List[dict],
         recent_signals: List[str],
-        period: str = "8-hour"
+        period: str = "8-hour",
     ) -> bool:
         """Send rich digest email with comprehensive portfolio status."""
         total_pnl = realised_pnl + unrealised_pnl
         pnl_emoji = "📈" if total_pnl > 0 else "📉" if total_pnl < 0 else "➡️"
-        
+
         subject = f"📬 {period.title()} Digest - Total PnL: ${total_pnl:+.2f}"
-        
+
         # Create HTML email body
         html_body = f"""
         <!DOCTYPE html>
@@ -170,19 +172,21 @@ class EmailNotifier:
         </body>
         </html>
         """
-        
+
         return await self.send_html_email(subject, html_body)
 
     def _format_positions_table(self, positions: List[dict]) -> str:
         """Format positions as HTML table."""
         if not positions:
             return "<p>No open positions</p>"
-        
+
         table_rows = ""
         for pos in positions:
-            side_class = "positive" if pos.get('side', '').upper() == 'LONG' else "negative"
-            pnl_class = "positive" if pos.get('unrealised_pnl', 0) >= 0 else "negative"
-            
+            side_class = (
+                "positive" if pos.get("side", "").upper() == "LONG" else "negative"
+            )
+            pnl_class = "positive" if pos.get("unrealised_pnl", 0) >= 0 else "negative"
+
             table_rows += f"""
             <tr>
                 <td><strong>{pos.get('symbol', 'N/A')}</strong></td>
@@ -193,7 +197,7 @@ class EmailNotifier:
                 <td><span class="{pnl_class}">${pos.get('unrealised_pnl', 0):+,.2f}</span></td>
             </tr>
             """
-        
+
         return f"""
         <table class="positions-table">
             <thead>
@@ -216,10 +220,10 @@ class EmailNotifier:
         """Format signals as HTML list."""
         if not signals:
             return "<p>No recent signals</p>"
-        
+
         recent_signals = signals[-10:]  # Last 10 signals
         signal_items = "".join([f"<li>{signal}</li>" for signal in recent_signals])
-        
+
         return f"<ul>{signal_items}</ul>"
 
     async def send_signal_alert(
@@ -323,9 +327,10 @@ class EmailNotifier:
     def _html_to_text(self, html: str) -> str:
         """Convert HTML to plain text for fallback."""
         import re
+
         # Simple HTML to text conversion
-        text = re.sub(r'<[^>]+>', '', html)
-        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r"<[^>]+>", "", html)
+        text = re.sub(r"\s+", " ", text)
         return text.strip()
 
 

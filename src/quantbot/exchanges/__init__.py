@@ -2,4 +2,4 @@
 
 from .alpaca_wrapper import AlpacaWrapper
 
-__all__ = ['AlpacaWrapper']
+__all__ = ["AlpacaWrapper"]

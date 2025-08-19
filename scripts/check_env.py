@@ -12,9 +12,9 @@ print("🔍 Environment Variable Check")
 print("=" * 40)
 
 # Check Binance credentials
-api_key = os.getenv('BINANCE_API_KEY')
-secret = os.getenv('BINANCE_SECRET')
-sandbox = os.getenv('BINANCE_SANDBOX')
+api_key = os.getenv("BINANCE_API_KEY")
+secret = os.getenv("BINANCE_SECRET")
+sandbox = os.getenv("BINANCE_SANDBOX")
 
 print(f"BINANCE_API_KEY: {'✅ Set' if api_key else '❌ Missing'}")
 if api_key:
@@ -29,17 +29,17 @@ if secret:
 print(f"BINANCE_SANDBOX: {sandbox}")
 
 # Check email credentials (support both variable naming conventions)
-email_from = os.getenv('EMAIL_FROM')
-email_password = os.getenv('EMAIL_PASSWORD')
-email_to = os.getenv('EMAIL_TO')
-smtp_server = os.getenv('SMTP_SERVER')
+email_from = os.getenv("EMAIL_FROM")
+email_password = os.getenv("EMAIL_PASSWORD")
+email_to = os.getenv("EMAIL_TO")
+smtp_server = os.getenv("SMTP_SERVER")
 
 # Fallback to new variable names
-smtp_user = email_from or os.getenv('SMTP_USER')
-smtp_password = email_password or os.getenv('SMTP_PASSWORD')
-notification_email = email_to or os.getenv('NOTIFICATION_EMAIL')
+smtp_user = email_from or os.getenv("SMTP_USER")
+smtp_password = email_password or os.getenv("SMTP_PASSWORD")
+notification_email = email_to or os.getenv("NOTIFICATION_EMAIL")
 
-print(f"\nEmail Configuration:")
+print("\nEmail Configuration:")
 print(f"EMAIL_FROM: {'✅ Set' if email_from else '❌ Missing'}")
 print(f"EMAIL_PASSWORD: {'✅ Set' if email_password else '❌ Missing'}")
 print(f"EMAIL_TO: {'✅ Set' if email_to else '❌ Missing'}")

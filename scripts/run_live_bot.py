@@ -87,7 +87,7 @@ class CryptoTradingBot:
         )  # 5 minutes default for more action
         self.symbols = os.getenv(
             "TRADING_SYMBOLS",
-            "BTCUSD,ETHUSD,SOLUSD,ADAUSD,LTCUSD,XRPUSD",
+            "BTCUSD,ETHUSD,BNBUSD,SOLUSD,ADAUSD,LTCUSD,MATICUSD,XRPUSD,DOTUSD,AVAXUSD,DOGEUSD,SHIBUSD,TRXUSD,LINKUSD,ATOMUSD,UNIUSD,XLMUSD,ETCUSD,NEARUSD,ALGOUSD,BCHUSD,VETUSD,FILUSD,ICPUSD,EGLDUSD,APTUSD,HBARUSD,SANDUSD,AXSUSD,THETAUSD,MANAUSD,FTMUSD,QNTUSD,OPUSD,ARBUSD,GRTUSD,CRVUSD,GMXUSD",
         ).split(",")
         self.max_portfolio_allocation = float(
             os.getenv("MAX_PORTFOLIO_ALLOCATION", "0.80")
@@ -96,7 +96,9 @@ class CryptoTradingBot:
         logger.info(
             f"Bot initialized - DRY_RUN: {self.dry_run}, Futures: {self.use_futures}, Interval: {self.update_interval}min"
         )
-        logger.info(f"Environment check - USE_FUTURES env var: {os.getenv('USE_FUTURES', 'NOT_SET')}")
+        logger.info(
+            f"Environment check - USE_FUTURES env var: {os.getenv('USE_FUTURES', 'NOT_SET')}"
+        )
         logger.info(f"Trading symbols: {', '.join(self.symbols)}")
         logger.info(f"Max portfolio allocation: {self.max_portfolio_allocation:.0%}")
 
@@ -142,7 +144,7 @@ class CryptoTradingBot:
 
             # Load markets
             self.exchange.load_markets()
-            
+
             # Test connection
             _ = self.exchange.fetch_balance()  # Test connection only
             logger.info("✅ Alpaca exchange connection established")
@@ -187,9 +189,9 @@ class CryptoTradingBot:
 
             risk_limits = RiskLimits(max_net_exposure=0.30)
             blender_config = BlenderConfigV2(
-                allocation_method=AllocationMethod.RISK_PARITY, 
+                allocation_method=AllocationMethod.RISK_PARITY,
                 risk_limits=risk_limits,
-                min_signal_confidence=0.10  # Lower threshold for more active trading
+                min_signal_confidence=0.05,  # Very low threshold for active trading
             )
             self.blender = PortfolioBlenderV2(blender_config)
 
@@ -231,7 +233,7 @@ class CryptoTradingBot:
                         f"Failed to fetch data for {symbol} after 5 retries: {e}"
                     )
                     return pd.DataFrame()
-        
+
         return pd.DataFrame()
 
     async def generate_signals(self, symbol: str) -> Dict[str, Any]:
@@ -327,9 +329,13 @@ class CryptoTradingBot:
                 position_value = capital_per_signal * signal_strength
 
                 # Minimum position size (configurable via env)
-                min_position_value = float(os.getenv("MIN_POSITION_VALUE", "25"))  # Lower from $50 to $25
+                min_position_value = float(
+                    os.getenv("MIN_POSITION_VALUE", "25")
+                )  # Lower from $50 to $25
                 if position_value < min_position_value:
-                    logger.debug(f"Skipping {symbol}: position value ${position_value:.2f} below minimum ${min_position_value}")
+                    logger.debug(
+                        f"Skipping {symbol}: position value ${position_value:.2f} below minimum ${min_position_value}"
+                    )
                     continue
 
                 action = "BUY" if position > 0 else "SELL"
@@ -366,17 +372,21 @@ class CryptoTradingBot:
                     try:
                         # Calculate quantity for the dollar amount
                         quantity = position_value / current_price
-                        
+
                         if action == "BUY":
-                            order = self.exchange.create_market_buy_order(symbol, quantity)
+                            order = self.exchange.create_market_buy_order(
+                                symbol, quantity
+                            )
                         else:
-                            order = self.exchange.create_market_sell_order(symbol, quantity)
-                        
+                            order = self.exchange.create_market_sell_order(
+                                symbol, quantity
+                            )
+
                         logger.info(
                             f"🚀 LIVE TRADE EXECUTED: {action} {quantity:.6f} {symbol} @ ${current_price:.4f} = ${position_value:.2f}"
                         )
                         logger.info(f"   → Order ID: {order.get('id', 'N/A')}")
-                        
+
                         # Track live trade for digest
                         trade_info = {
                             "symbol": symbol,
@@ -385,17 +395,17 @@ class CryptoTradingBot:
                             "size": position_value,
                             "quantity": quantity,
                             "timestamp": datetime.utcnow(),
-                            "order_id": order.get('id'),
+                            "order_id": order.get("id"),
                         }
                         self.recent_trades.append(trade_info)
-                        
+
                     except Exception as e:
                         logger.error(f"❌ Live trade failed for {symbol}: {e}")
                         # Only alert on critical trade failures
                         if "insufficient" not in str(e).lower():
                             await notifier.send_risk_alert(
-                                message=f"Live trade failure {symbol}: {e}", 
-                                severity="ERROR"
+                                message=f"Live trade failure {symbol}: {e}",
+                                severity="ERROR",
                             )
 
             logger.info(
@@ -423,15 +433,17 @@ class CryptoTradingBot:
             # Get actual open positions from Alpaca
             open_positions = []
             unrealised_pnl = 0.0
-            
+
             try:
                 positions = self.exchange.trading_client.get_all_positions()
-                
+
                 # If no live positions but we have recent trades, show recent activity
                 if not positions and self.recent_trades:
-                    logger.info("No live positions found, showing recent trades in digest")
+                    logger.info(
+                        "No live positions found, showing recent trades in digest"
+                    )
                     raise ValueError("No live positions - use recent trades")
-                
+
                 for position in positions:
                     open_positions.append(
                         {
@@ -439,23 +451,31 @@ class CryptoTradingBot:
                             "side": "LONG" if float(position.qty) > 0 else "SHORT",
                             "size": float(position.market_value),
                             "entry_price": float(position.avg_entry_price),
-                            "current_price": float(position.market_value) / float(position.qty) if float(position.qty) != 0 else 0,
+                            "current_price": (
+                                float(position.market_value) / float(position.qty)
+                                if float(position.qty) != 0
+                                else 0
+                            ),
                             "unrealised_pnl": float(position.unrealized_pl),
                         }
                     )
-                
+
                 # Calculate total unrealised P&L from actual positions
                 unrealised_pnl = sum(float(pos.unrealized_pl) for pos in positions)
-                
+
             except Exception as e:
                 logger.warning(f"Using recent trades for digest: {e}")
                 # Fallback to recent trades (for paper trading or when no positions)
                 if self.recent_trades:
-                    # Show recent trades as "positions" 
+                    # Show recent trades as "positions"
                     for trade in self.recent_trades[-5:]:
-                        current_price = trade["price"] * (1 + np.random.uniform(-0.02, 0.02))  # Mock price movement
-                        pnl = (current_price - trade["price"]) * (trade["size"] / trade["price"])
-                        
+                        current_price = trade["price"] * (
+                            1 + np.random.uniform(-0.02, 0.02)
+                        )  # Mock price movement
+                        pnl = (current_price - trade["price"]) * (
+                            trade["size"] / trade["price"]
+                        )
+
                         open_positions.append(
                             {
                                 "symbol": trade["symbol"],
@@ -466,7 +486,9 @@ class CryptoTradingBot:
                                 "unrealised_pnl": pnl,
                             }
                         )
-                    unrealised_pnl = sum(pos.get("unrealised_pnl", 0) for pos in open_positions)
+                    unrealised_pnl = sum(
+                        pos.get("unrealised_pnl", 0) for pos in open_positions
+                    )
 
             # Send digest
             await notifier.send_digest(
@@ -504,7 +526,9 @@ class CryptoTradingBot:
                     self.main_task = asyncio.create_task(self.trading_loop())
 
                     # Only send critical alerts - restart info included in digest
-                    logger.warning("Trading loop restarted - will be reported in next digest")
+                    logger.warning(
+                        "Trading loop restarted - will be reported in next digest"
+                    )
 
                 await asyncio.sleep(60)  # Check every minute
 
@@ -526,7 +550,9 @@ class CryptoTradingBot:
                     signal_data = await self.generate_signals(symbol)
                     if signal_data:
                         all_signals[symbol] = signal_data
-                        logger.info(f"📈 {symbol}: position={signal_data.get('final_position', 0):.3f}, confidence={signal_data.get('confidence', 0):.1%}")
+                        logger.info(
+                            f"📈 {symbol}: position={signal_data.get('final_position', 0):.3f}, confidence={signal_data.get('confidence', 0):.1%}"
+                        )
                     else:
                         logger.info(f"📊 {symbol}: No signals generated")
 
