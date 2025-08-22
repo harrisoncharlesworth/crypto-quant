@@ -67,7 +67,7 @@ class BlenderConfigV2:
 
     # Core allocation settings
     allocation_method: AllocationMethod = AllocationMethod.RISK_PARITY
-    min_signal_confidence: float = 0.05  # Very low threshold for active trading
+    min_signal_confidence: float = 0.10  # Reduced noise threshold for active trading
     correlation_lookback: int = 100
 
     # Signal type configurations

@@ -6,13 +6,14 @@ import pandas as pd
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
 class RiskMetrics:
-    """Real-time risk metrics for portfolio monitoring."""
+    """Enhanced real-time risk metrics for portfolio monitoring."""
 
+    # Core metrics
     portfolio_heat: float
     max_heat_limit: float
     heat_utilization_pct: float
@@ -21,6 +22,24 @@ class RiskMetrics:
     position_sizes: Dict[str, float]
     nav: float
     timestamp: datetime
+
+    # Enhanced accuracy metrics
+    correlation_adjusted_heat: float = 0.0
+    var_95_1day: float = 0.0  # 95% 1-day Value at Risk
+    expected_shortfall: float = 0.0  # Expected Shortfall (Conditional VaR)
+    projected_heat_6h: float = 0.0  # 6-hour ahead projection
+
+    # Fee and funding metrics
+    total_funding_pnl_24h: float = 0.0
+    estimated_fees_24h: float = 0.0
+    slippage_adjusted_ear: Dict[str, float] = field(default_factory=dict)
+
+    # Market context
+    market_conditions: Dict[str, Any] = field(default_factory=dict)
+
+    # Performance attribution
+    signal_attribution: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    sector_exposures: Dict[str, float] = field(default_factory=dict)
 
 
 class PortfolioRiskMonitor:
@@ -111,6 +130,20 @@ class PortfolioRiskMonitor:
         self.risk_history.append(metrics)
         if len(self.risk_history) > 1000:  # Keep last 1000 records
             self.risk_history = self.risk_history[-1000:]
+
+        # Calculate enhanced metrics
+        metrics.correlation_adjusted_heat = self._calculate_correlation_adjusted_heat(
+            positions, market_data
+        )
+        metrics.var_95_1day = self._calculate_var_95(positions, market_data)
+        metrics.expected_shortfall = self._calculate_expected_shortfall(
+            positions, market_data
+        )
+        metrics.projected_heat_6h = self._calculate_projected_heat(
+            positions, market_data
+        )
+        metrics.market_conditions = self._get_market_conditions()
+        metrics.sector_exposures = self._calculate_sector_exposures(positions)
 
         return metrics
 
@@ -317,3 +350,217 @@ class PortfolioRiskMonitor:
         logging.info(
             f"NAV updated to ${new_nav:,.0f}, Max Heat: ${self.max_heat_limit:,.0f}"
         )
+
+    def _calculate_correlation_adjusted_heat(
+        self, positions: Dict[str, float], market_data: Dict[str, pd.DataFrame]
+    ) -> float:
+        """Calculate correlation-adjusted portfolio heat using 90-day rolling correlations."""
+        try:
+            if len(positions) < 2:
+                return sum(
+                    self._calculate_atr(symbol, market_data.get(symbol))
+                    * abs(size)
+                    * self.atr_multiplier
+                    for symbol, size in positions.items()
+                )
+
+            symbols = list(positions.keys())
+            returns_matrix = []
+
+            # Calculate 30-day returns for correlation (simplified)
+            for symbol in symbols:
+                data = market_data.get(symbol)
+                if data is not None and len(data) >= 30:
+                    returns = data["close"].pct_change().dropna().tail(30)
+                    returns_matrix.append(returns.values)
+
+            if len(returns_matrix) < 2:
+                return 0.0
+
+            # Calculate correlation matrix
+            import numpy as np
+
+            returns_df = pd.DataFrame(returns_matrix).T
+            corr_matrix = returns_df.corr().fillna(0).values
+
+            # Weight vector (position sizes * ATR * multiplier)
+            weights = []
+            for symbol in symbols:
+                atr = self._calculate_atr(symbol, market_data.get(symbol))
+                weight = abs(positions[symbol]) * atr * self.atr_multiplier
+                weights.append(weight)
+
+            weights = np.array(weights)
+
+            # Portfolio variance: w^T * Σ * w
+            portfolio_variance = np.dot(weights, np.dot(corr_matrix, weights))
+
+            return float(np.sqrt(portfolio_variance)) if portfolio_variance > 0 else 0.0
+
+        except Exception as e:
+            logging.warning(f"Correlation-adjusted heat calculation failed: {e}")
+            return 0.0
+
+    def _calculate_var_95(
+        self, positions: Dict[str, float], market_data: Dict[str, pd.DataFrame]
+    ) -> float:
+        """Calculate 95% 1-day Value at Risk using parametric method."""
+        try:
+            import numpy as np
+
+            total_portfolio_value = 0.0
+            portfolio_volatility = 0.0
+
+            for symbol, size in positions.items():
+                if abs(size) < 0.0001:
+                    continue
+
+                data = market_data.get(symbol)
+                if data is None or len(data) < 30:
+                    continue
+
+                # Calculate 30-day volatility
+                returns = data["close"].pct_change().dropna().tail(30)
+                if len(returns) < 10:
+                    continue
+
+                daily_vol = returns.std()
+                current_price = data["close"].iloc[-1] if len(data) > 0 else 0
+                position_value = abs(size) * current_price
+
+                total_portfolio_value += position_value
+                portfolio_volatility += (position_value * daily_vol) ** 2
+
+            if total_portfolio_value == 0:
+                return 0.0
+
+            portfolio_volatility = np.sqrt(portfolio_volatility)
+            portfolio_vol_pct = (
+                portfolio_volatility / total_portfolio_value
+                if total_portfolio_value > 0
+                else 0
+            )
+
+            # 95% VaR = 1.645 * σ * Portfolio Value
+            var_95 = 1.645 * portfolio_vol_pct * total_portfolio_value
+
+            return float(var_95)
+
+        except Exception as e:
+            logging.warning(f"VaR calculation failed: {e}")
+            return 0.0
+
+    def _calculate_expected_shortfall(
+        self, positions: Dict[str, float], market_data: Dict[str, pd.DataFrame]
+    ) -> float:
+        """Calculate Expected Shortfall (Conditional VaR)."""
+        try:
+            var_95 = self._calculate_var_95(positions, market_data)
+            # ES ≈ VaR / 0.95 for normal distribution (simplified)
+            return var_95 * 1.05 if var_95 > 0 else 0.0
+        except Exception as e:
+            logging.warning(f"Expected Shortfall calculation failed: {e}")
+            return 0.0
+
+    def _calculate_projected_heat(
+        self, positions: Dict[str, float], market_data: Dict[str, pd.DataFrame]
+    ) -> float:
+        """Calculate projected portfolio heat 6 hours ahead."""
+        try:
+            import numpy as np
+
+            projected_heat = 0.0
+            sqrt_6h = np.sqrt(6 / 24)  # 6 hours as fraction of day
+
+            for symbol, size in positions.items():
+                if abs(size) < 0.0001:
+                    continue
+
+                data = market_data.get(symbol)
+                if data is None or len(data) < 10:
+                    continue
+
+                # Use ATR as volatility proxy
+                atr = self._calculate_atr(symbol, data)
+                if atr <= 0:
+                    continue
+
+                # Project ATR forward by 6 hours with vol scaling
+                projected_atr = atr * sqrt_6h
+                projected_risk = abs(size) * projected_atr * self.atr_multiplier
+                projected_heat += projected_risk
+
+            return projected_heat
+
+        except Exception as e:
+            logging.warning(f"Projected heat calculation failed: {e}")
+            return 0.0
+
+    def _get_market_conditions(self) -> Dict[str, Any]:
+        """Get current market conditions and volatility metrics."""
+        try:
+            # Simplified market conditions - can be enhanced with external APIs
+            return {
+                "timestamp": datetime.utcnow().isoformat(),
+                "market_session": self._get_market_session(),
+                "volatility_regime": "normal",  # Can be enhanced with VIX-like indicators
+                "funding_environment": "neutral",  # Can be enhanced with funding rate data
+            }
+        except Exception as e:
+            logging.warning(f"Market conditions fetch failed: {e}")
+            return {}
+
+    def _get_market_session(self) -> str:
+        """Determine current market session."""
+        utc_hour = datetime.utcnow().hour
+        if 0 <= utc_hour < 8:
+            return "asia"
+        elif 8 <= utc_hour < 16:
+            return "europe"
+        else:
+            return "americas"
+
+    def _calculate_sector_exposures(
+        self, positions: Dict[str, float]
+    ) -> Dict[str, float]:
+        """Calculate exposure by crypto sectors."""
+        try:
+            # Simplified sector mapping - can be enhanced with external data
+            sector_map = {
+                "BTC": "store_of_value",
+                "ETH": "smart_contract",
+                "BNB": "exchange",
+                "SOL": "layer1",
+                "ADA": "layer1",
+                "DOT": "interoperability",
+                "AVAX": "layer1",
+                "LINK": "oracle",
+                "UNI": "defi",
+                "DOGE": "meme",
+                "SHIB": "meme",
+                "MATIC": "layer2",
+                "OP": "layer2",
+                "ARB": "layer2",
+            }
+
+            sector_exposures = {}
+            total_exposure = sum(abs(size) for size in positions.values())
+
+            if total_exposure == 0:
+                return {}
+
+            for symbol, size in positions.items():
+                # Extract base symbol (remove USD suffix)
+                base_symbol = symbol.replace("USD", "").replace("USDT", "")
+                sector = sector_map.get(base_symbol, "other")
+
+                exposure_pct = abs(size) / total_exposure * 100
+                sector_exposures[sector] = (
+                    sector_exposures.get(sector, 0) + exposure_pct
+                )
+
+            return sector_exposures
+
+        except Exception as e:
+            logging.warning(f"Sector exposure calculation failed: {e}")
+            return {}

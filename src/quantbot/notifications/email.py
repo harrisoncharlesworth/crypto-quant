@@ -145,6 +145,12 @@ class EmailNotifier:
                 .risk-card {{ background: #fff3cd; padding: 12px; border-radius: 6px; text-align: center; border-left: 4px solid #ffc107; }}
                 .risk-value {{ font-size: 1.2em; font-weight: bold; color: #856404; }}
                 .risk-label {{ font-size: 0.85em; color: #6c757d; margin-top: 3px; }}
+                .market-dashboard {{ background: #e7f3ff; padding: 15px; border-radius: 6px; border-left: 4px solid #007bff; margin: 15px 0; }}
+                .var-section {{ background: #fff8e1; padding: 15px; border-radius: 6px; border-left: 4px solid #ff9800; margin: 15px 0; }}
+                .attribution-table {{ width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 0.9em; }}
+                .attribution-table th, .attribution-table td {{ padding: 8px; text-align: left; border-bottom: 1px solid #e9ecef; }}
+                .sector-bar {{ height: 20px; background: linear-gradient(90deg, #28a745, #ffc107, #dc3545); border-radius: 10px; margin: 5px 0; }}
+                .enhanced-metric {{ font-size: 0.9em; color: #495057; margin: 2px 0; }}
                 .signals-list {{ background: #f8f9fa; padding: 15px; border-radius: 6px; margin: 15px 0; }}
                 .footer {{ background: #f8f9fa; padding: 15px; text-align: center; font-size: 0.9em; color: #6c757d; border-radius: 0 0 8px 8px; }}
             </style>
@@ -213,6 +219,32 @@ class EmailNotifier:
                         <div class="risk-card">
                             <div class="risk-value">{avg_ear:.2f}%</div>
                             <div class="risk-label">Avg EaR per Position</div>
+                        </div>
+                    </div>
+                    
+                    <h3>📊 Advanced Risk Analytics</h3>
+                    <div class="var-section">
+                        <h4>🎯 Value at Risk & Projections</h4>
+                        <div class="enhanced-metric"><strong>95% 1-Day VaR:</strong> ${risk_metrics.get('var_95_1day', 0):,.0f}</div>
+                        <div class="enhanced-metric"><strong>Expected Shortfall:</strong> ${risk_metrics.get('expected_shortfall', 0):,.0f}</div>
+                        <div class="enhanced-metric"><strong>6-Hour Heat Projection:</strong> ${risk_metrics.get('projected_heat_6h', 0):,.0f}</div>
+                        <div class="enhanced-metric"><strong>Correlation-Adj Heat:</strong> ${risk_metrics.get('correlation_adjusted_heat', 0):,.0f}</div>
+                    </div>
+                    
+                    <h3>🌍 Market Conditions Dashboard</h3>
+                    <div class="market-dashboard">
+                        <div class="portfolio-grid">
+                            <div>
+                                <h4>📈 Volatility Environment</h4>
+                                <div class="enhanced-metric"><strong>Market Session:</strong> {risk_metrics.get('market_conditions', {}).get('market_session', 'Unknown').title()}</div>
+                                <div class="enhanced-metric"><strong>Vol Regime:</strong> {risk_metrics.get('market_conditions', {}).get('volatility_regime', 'Normal').title()}</div>
+                                <div class="enhanced-metric"><strong>Funding Environment:</strong> {risk_metrics.get('market_conditions', {}).get('funding_environment', 'Neutral').title()}</div>
+                            </div>
+                            <div>
+                                <h4>🏗️ Sector Exposure</h4>
+                                {''.join([f'<div class="enhanced-metric"><strong>{sector.title()}:</strong> {exposure:.1f}%</div>' 
+                                          for sector, exposure in risk_metrics.get('sector_exposures', {}).items()])}
+                            </div>
                         </div>
                     </div>
                     
