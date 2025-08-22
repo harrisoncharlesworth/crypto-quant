@@ -30,6 +30,7 @@ from quantbot.portfolio.blender_v2 import (
     BlenderConfigV2,
     AllocationMethod,
 )
+from quantbot.portfolio.risk_monitor import PortfolioRiskMonitor
 from quantbot.notifications.email import notifier
 from quantbot.exchanges.alpaca_wrapper import AlpacaWrapper
 import pandas as pd
@@ -104,6 +105,15 @@ class CryptoTradingBot:
 
         # Initialize next digest time
         self.next_digest = self.calculate_next_digest_time()
+
+        # Initialize risk monitor
+        self.risk_monitor = PortfolioRiskMonitor(
+            nav=float(os.getenv("TRADING_NAV", "200000")),
+            max_heat_pct=0.08,  # 8% max portfolio heat
+            equity_at_risk_pct=0.005,  # 0.5% per trade
+            atr_multiplier=1.2,
+            single_position_cap_pct=0.05,  # 5% max per position
+        )
 
     def calculate_next_digest_time(self) -> datetime:
         """Calculate next digest send time (00:00, 08:00, 16:00 UTC)."""
@@ -490,6 +500,67 @@ class CryptoTradingBot:
                         pos.get("unrealised_pnl", 0) for pos in open_positions
                     )
 
+            # Calculate risk metrics for positions
+            try:
+                # Create market data dict for risk calculations (simplified)
+                market_data_dict = {}
+                for position in open_positions:
+                    symbol = position.get("symbol", "")
+                    if symbol:
+                        # Add basic price data for ATR calculation
+                        market_data_dict[symbol] = pd.DataFrame(
+                            {
+                                "high": [position.get("current_price", 0) * 1.01] * 10,
+                                "low": [position.get("current_price", 0) * 0.99] * 10,
+                                "close": [position.get("current_price", 0)] * 10,
+                            }
+                        )
+
+                # Get current positions dict for risk monitor
+                positions_dict = {
+                    pos.get("symbol", ""): pos.get("size", 0)
+                    for pos in open_positions
+                    if pos.get("symbol")
+                }
+
+                # Calculate risk metrics
+                risk_metrics_obj = self.risk_monitor.calculate_portfolio_heat(
+                    positions_dict, market_data_dict
+                )
+
+                # Convert to dict for email
+                risk_metrics = {
+                    "portfolio_heat": risk_metrics_obj.portfolio_heat,
+                    "largest_position_risk": (
+                        max(risk_metrics_obj.individual_position_risks.values())
+                        if risk_metrics_obj.individual_position_risks
+                        else 0
+                    ),
+                    "avg_ear": (
+                        np.mean(
+                            list(risk_metrics_obj.individual_position_risks.values())
+                        )
+                        / balance
+                        * 100
+                        if risk_metrics_obj.individual_position_risks
+                        else 0
+                    ),
+                    "capital_deployed": (
+                        sum(
+                            abs(pos.get("size", 0) * pos.get("current_price", 0))
+                            for pos in open_positions
+                        )
+                        / balance
+                        * 100
+                        if balance > 0
+                        else 0
+                    ),
+                }
+
+            except Exception as e:
+                logger.warning(f"Failed to calculate risk metrics: {e}")
+                risk_metrics = {}
+
             # Send digest
             await notifier.send_digest(
                 account_equity=balance,
@@ -498,6 +569,7 @@ class CryptoTradingBot:
                 open_positions=open_positions,
                 recent_signals=self.recent_signals,
                 period="8-hour",
+                risk_metrics=risk_metrics,
             )
 
             logger.info(

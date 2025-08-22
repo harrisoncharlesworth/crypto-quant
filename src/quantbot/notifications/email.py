@@ -91,10 +91,31 @@ class EmailNotifier:
         open_positions: List[dict],
         recent_signals: List[str],
         period: str = "8-hour",
+        risk_metrics: Optional[dict] = None,
     ) -> bool:
         """Send rich digest email with comprehensive portfolio status."""
         total_pnl = realised_pnl + unrealised_pnl
         pnl_emoji = "📈" if total_pnl > 0 else "📉" if total_pnl < 0 else "➡️"
+
+        # Calculate risk metrics
+        if risk_metrics is None:
+            risk_metrics = {}
+
+        portfolio_heat = risk_metrics.get("portfolio_heat", 0.0)
+        heat_utilization = (
+            (portfolio_heat / 16000.0) * 100 if portfolio_heat > 0 else 0.0
+        )
+        largest_position_risk = risk_metrics.get("largest_position_risk", 0.0)
+        avg_ear = risk_metrics.get("avg_ear", 0.0)
+        capital_deployed = risk_metrics.get("capital_deployed", 0.0)
+
+        # Heat status emoji
+        if heat_utilization < 60:
+            heat_status_emoji = "🟢"  # Green - Healthy
+        elif heat_utilization < 85:
+            heat_status_emoji = "🟡"  # Yellow - Warning
+        else:
+            heat_status_emoji = "🔴"  # Red - Critical
 
         subject = f"📬 {period.title()} Digest - Total PnL: ${total_pnl:+.2f}"
 
@@ -118,6 +139,12 @@ class EmailNotifier:
                 .positions-table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
                 .positions-table th, .positions-table td {{ padding: 10px; text-align: left; border-bottom: 1px solid #e9ecef; }}
                 .positions-table th {{ background-color: #f8f9fa; font-weight: 600; }}
+                .portfolio-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 20px 0; }}
+                .portfolio-section {{ background: #f8f9fa; padding: 15px; border-radius: 6px; border-left: 4px solid #28a745; }}
+                .risk-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 15px 0; }}
+                .risk-card {{ background: #fff3cd; padding: 12px; border-radius: 6px; text-align: center; border-left: 4px solid #ffc107; }}
+                .risk-value {{ font-size: 1.2em; font-weight: bold; color: #856404; }}
+                .risk-label {{ font-size: 0.85em; color: #6c757d; margin-top: 3px; }}
                 .signals-list {{ background: #f8f9fa; padding: 15px; border-radius: 6px; margin: 15px 0; }}
                 .footer {{ background: #f8f9fa; padding: 15px; text-align: center; font-size: 0.9em; color: #6c757d; border-radius: 0 0 8px 8px; }}
             </style>
@@ -158,10 +185,41 @@ class EmailNotifier:
                         {self._format_signals_list(recent_signals)}
                     </div>
                     
-                    <h3>📊 Market Analysis</h3>
-                    <p><strong>Active Trading Pairs:</strong> BTC, ETH, BNB, SOL, ADA, LTC, MATIC, XRP</p>
-                    <p><strong>Risk Management:</strong> Portfolio Blender V2 with risk parity allocation</p>
-                    <p><strong>Signal Count:</strong> 12 evidence-based quantitative signals</p>
+                    <h3>🎯 Portfolio Overview</h3>
+                    <div class="portfolio-grid">
+                        <div class="portfolio-section">
+                            <h4>📈 Active Universe</h4>
+                            <p><strong>Trading Pairs:</strong> {len([p for p in open_positions if abs(p.get('size', 0)) > 0.001])}/38 pairs active</p>
+                            <p><strong>Diversification:</strong> L1s, L2s, DeFi, Meme, Metaverse</p>
+                        </div>
+                        <div class="portfolio-section">
+                            <h4>🛡️ Risk Framework</h4>
+                            <p><strong>Position Sizing:</strong> ATR-based (0.5% EaR per trade)</p>
+                            <p><strong>Portfolio Heat:</strong> ${portfolio_heat:,.0f} / $16,000 ({heat_utilization:.1f}%)</p>
+                            <p><strong>Capital Utilization:</strong> {capital_deployed:.1f}% of $200k NAV</p>
+                        </div>
+                    </div>
+                    
+                    <h3>📊 Risk Metrics</h3>
+                    <div class="risk-grid">
+                        <div class="risk-card">
+                            <div class="risk-value">{heat_status_emoji}</div>
+                            <div class="risk-label">Heat Status</div>
+                        </div>
+                        <div class="risk-card">
+                            <div class="risk-value">{largest_position_risk:,.0f}</div>
+                            <div class="risk-label">Max Position Risk ($)</div>
+                        </div>
+                        <div class="risk-card">
+                            <div class="risk-value">{avg_ear:.2f}%</div>
+                            <div class="risk-label">Avg EaR per Position</div>
+                        </div>
+                    </div>
+                    
+                    <h3>🏗️ System Info</h3>
+                    <p><strong>Signal Engine:</strong> 12 evidence-based quantitative signals</p>
+                    <p><strong>Portfolio Blender:</strong> V2 with ATR-based position sizing</p>
+                    <p><strong>Risk Monitor:</strong> Real-time portfolio heat tracking</p>
                 </div>
                 
                 <div class="footer">
@@ -187,6 +245,12 @@ class EmailNotifier:
             )
             pnl_class = "positive" if pos.get("unrealised_pnl", 0) >= 0 else "negative"
 
+            # Calculate risk metrics for this position
+            atr = pos.get("atr", 0)
+            position_size = abs(pos.get("size", 0))
+            ear = position_size * atr * 1.2  # EaR calculation
+            risk_pct = (ear / 200000.0) * 100  # Risk as % of $200k NAV
+
             table_rows += f"""
             <tr>
                 <td><strong>{pos.get('symbol', 'N/A')}</strong></td>
@@ -194,6 +258,9 @@ class EmailNotifier:
                 <td>${pos.get('size', 0):,.2f}</td>
                 <td>${pos.get('entry_price', 0):,.2f}</td>
                 <td>${pos.get('current_price', 0):,.2f}</td>
+                <td>${atr:,.0f}</td>
+                <td>${ear:,.0f}</td>
+                <td>{risk_pct:.2f}%</td>
                 <td><span class="{pnl_class}">${pos.get('unrealised_pnl', 0):+,.2f}</span></td>
             </tr>
             """
@@ -207,6 +274,9 @@ class EmailNotifier:
                     <th>Size</th>
                     <th>Entry</th>
                     <th>Current</th>
+                    <th>ATR ($)</th>
+                    <th>EaR ($)</th>
+                    <th>Risk %</th>
                     <th>P&L</th>
                 </tr>
             </thead>
