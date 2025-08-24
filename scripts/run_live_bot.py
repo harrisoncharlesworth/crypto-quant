@@ -78,6 +78,12 @@ class CryptoTradingBot:
         self.recent_signals = []
         self.recent_trades = []
 
+        # Portfolio heat monitoring
+        self.portfolio_heat = 0.0
+        self.heat_kill_switch_triggered = False
+        self.heat_pause_cycles = 0
+        self.max_portfolio_heat = 0.08  # 8% max portfolio heat
+
         # Trading configuration
         self.dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
         self.use_futures = (
@@ -233,7 +239,7 @@ class CryptoTradingBot:
 
             except Exception as e:
                 if retry < 4:
-                    wait_time = 2**retry
+                    wait_time = min(2**retry, 32)  # Exponential backoff capped at 32s
                     logger.warning(
                         f"Network error for {symbol}, retrying in {wait_time}s: {e}"
                     )
@@ -304,10 +310,39 @@ class CryptoTradingBot:
     async def execute_trades(self, signals: Dict[str, Any]):
         """Execute trades based on signals with proper position sizing."""
         try:
+            # Check heat kill-switch first
+            if self.heat_kill_switch_triggered:
+                if self.heat_pause_cycles > 0:
+                    self.heat_pause_cycles -= 1
+                    logger.warning(
+                        f"🔥 Heat kill-switch active: {self.heat_pause_cycles} cycles remaining"
+                    )
+                    return
+                else:
+                    logger.info("🔥 Heat kill-switch reset - resuming trading")
+                    self.heat_kill_switch_triggered = False
+
             # Get current balance
             balance = await self.get_account_balance()
             if balance <= 0:
                 logger.warning("No USDT balance available for trading")
+                return
+
+            # Calculate portfolio heat (simplified as sum of absolute position values)
+            total_exposure = sum(
+                abs(s.get("final_position", 0)) * balance for s in signals.values()
+            )
+            self.portfolio_heat = total_exposure / balance if balance > 0 else 0.0
+
+            # Trigger kill-switch if heat exceeds threshold
+            if self.portfolio_heat > self.max_portfolio_heat:
+                self.heat_kill_switch_triggered = True
+                self.heat_pause_cycles = (
+                    10  # Pause for 10 cycles (50 minutes at 5min intervals)
+                )
+                logger.error(
+                    f"🔥 PORTFOLIO HEAT KILL-SWITCH TRIGGERED: {self.portfolio_heat:.3f} > {self.max_portfolio_heat:.3f}"
+                )
                 return
 
             # Calculate available capital for new positions
@@ -403,21 +438,23 @@ class CryptoTradingBot:
                             # Estimate ATR as 2% of current price (simplified)
                             estimated_atr = current_price * 0.02
                             stop_distance = atr_multiplier * estimated_atr
-                            
+
                             if action == "BUY":
                                 stop_loss_price = current_price - stop_distance
                                 take_profit_price = current_price + stop_distance
                             else:
                                 stop_loss_price = current_price + stop_distance
                                 take_profit_price = current_price - stop_distance
-                            
+
                             # Log stop order details (actual OCO implementation would depend on exchange)
                             logger.info(
                                 f"   → Stop Loss: ${stop_loss_price:.4f}, Take Profit: ${take_profit_price:.4f}"
                             )
-                            
+
                         except Exception as stop_error:
-                            logger.warning(f"Could not set OCO stop for {symbol}: {stop_error}")
+                            logger.warning(
+                                f"Could not set OCO stop for {symbol}: {stop_error}"
+                            )
 
                         # Track live trade for digest
                         trade_info = {

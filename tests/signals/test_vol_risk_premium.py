@@ -559,10 +559,10 @@ class TestVolRiskPremiumIntegration:
         """Test complete workflow with positive VRP scenario."""
         # Set up scenario with positive VRP
         realized_vol = 0.60  # Lower than implied vol
-        
+
         # Get the actual final price from sample data to create matching options
         final_price = sample_ohlcv_data.iloc[-1]["close"]
-        
+
         # Create ATM options that match the final price
         expiry = datetime.now() + timedelta(days=10)
         atm_call = OptionsContract(
@@ -583,9 +583,9 @@ class TestVolRiskPremiumIntegration:
             theta=-50,
             rho=20,
             mark_price=final_price * 0.04,
-            index_price=final_price
+            index_price=final_price,
         )
-        
+
         atm_put = OptionsContract(
             symbol=f"BTC-{expiry.strftime('%d%b%y').upper()}-{int(final_price)}-P",
             underlying="BTC",
@@ -604,7 +604,7 @@ class TestVolRiskPremiumIntegration:
             theta=-48,
             rho=-18,
             mark_price=final_price * 0.039,
-            index_price=final_price
+            index_price=final_price,
         )
 
         with patch.object(
