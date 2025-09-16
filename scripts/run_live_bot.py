@@ -307,21 +307,31 @@ class CryptoTradingBot:
             logger.error(f"Failed to get price for {symbol}: {e}")
             return 0.0
 
-    async def execute_trades(self, signals: Dict[str, Any]):
-        """Execute trades based on signals with proper position sizing."""
+    async def get_current_positions(self) -> Dict[str, float]:
+        """Get current positions from exchange."""
         try:
-            # Check heat kill-switch first
-            if self.heat_kill_switch_triggered:
-                if self.heat_pause_cycles > 0:
-                    self.heat_pause_cycles -= 1
-                    logger.warning(
-                        f"🔥 Heat kill-switch active: {self.heat_pause_cycles} cycles remaining"
-                    )
-                    return
-                else:
-                    logger.info("🔥 Heat kill-switch reset - resuming trading")
-                    self.heat_kill_switch_triggered = False
+            if not self.dry_run:
+                positions = self.exchange.trading_client.get_all_positions()
+                position_dict = {}
+                for position in positions:
+                    # Convert Alpaca symbol format back to our format
+                    symbol = position.symbol.replace("/", "")  # ETH/USD -> ETHUSD
+                    qty = float(position.qty)
+                    position_dict[symbol] = qty
+                return position_dict
+            else:
+                # For paper trading, track positions in memory
+                return getattr(self, 'paper_positions', {})
+        except Exception as e:
+            logger.error(f"Failed to get current positions: {e}")
+            return {}
 
+    async def execute_trades(self, signals: Dict[str, Any]):
+        """Execute trades based on signals with proper position sizing and exit handling."""
+        try:
+            # Get current positions first
+            current_positions = await self.get_current_positions()
+            
             # Get current balance
             balance = await self.get_account_balance()
             if balance <= 0:
@@ -334,59 +344,103 @@ class CryptoTradingBot:
             )
             self.portfolio_heat = total_exposure / balance if balance > 0 else 0.0
 
-            # Trigger kill-switch if heat exceeds threshold
-            if self.portfolio_heat > self.max_portfolio_heat:
-                self.heat_kill_switch_triggered = True
-                self.heat_pause_cycles = (
-                    10  # Pause for 10 cycles (50 minutes at 5min intervals)
-                )
-                logger.error(
-                    f"🔥 PORTFOLIO HEAT KILL-SWITCH TRIGGERED: {self.portfolio_heat:.3f} > {self.max_portfolio_heat:.3f}"
-                )
-                return
-
             # Calculate available capital for new positions
             available_capital = balance * self.max_portfolio_allocation
-
-            # Count valid signals (lowered threshold to be more active)
-            valid_signals = [
-                s for s in signals.values() if abs(s.get("final_position", 0)) >= 0.005
-            ]
-            if not valid_signals:
-                logger.info("No valid trading signals generated")
-                return
-
-            # Allocate capital across signals
-            capital_per_signal = available_capital / len(valid_signals)
-
-            for symbol_data in valid_signals:
-                symbol = symbol_data.get("symbol")
-                position = symbol_data.get("final_position", 0)
-                confidence = symbol_data.get("confidence", 0)
-
+            
+            # Prepare all orders (entries and exits)
+            orders_to_execute = []
+            
+            # Process signals - separate new entries from position adjustments
+            for symbol, signal_data in signals.items():
+                target_position = signal_data.get("final_position", 0)
+                current_qty = current_positions.get(symbol, 0.0)
+                
                 # Get current price
                 current_price = await self.get_current_price(symbol)
                 if current_price <= 0:
                     continue
+                
+                # Calculate target dollar value
+                target_value = target_position * balance * self.max_portfolio_allocation
+                current_value = current_qty * current_price
+                diff_value = target_value - current_value
+                
+                # Calculate required quantity change
+                if abs(diff_value) >= float(os.getenv("MIN_POSITION_VALUE", "25")):
+                    qty_change = diff_value / current_price
+                    action = "BUY" if qty_change > 0 else "SELL"
+                    
+                    orders_to_execute.append({
+                        "symbol": symbol,
+                        "action": action,
+                        "quantity": abs(qty_change),
+                        "value": abs(diff_value),
+                        "is_exit": abs(target_position) < 0.005,  # Flag exits
+                        "confidence": signal_data.get("confidence", 1.0),
+                        "current_price": current_price,
+                        "reduces_risk": (current_value * diff_value) < 0  # True if trade reduces exposure
+                    })
+            
+            # Handle positions without signals (close orphaned positions)
+            for symbol, qty in current_positions.items():
+                if abs(qty) > 0.001 and symbol not in signals:
+                    current_price = await self.get_current_price(symbol)
+                    if current_price > 0:
+                        action = "SELL" if qty > 0 else "BUY"
+                        orders_to_execute.append({
+                            "symbol": symbol,
+                            "action": action,
+                            "quantity": abs(qty),
+                            "value": abs(qty * current_price),
+                            "is_exit": True,
+                            "confidence": 1.0,
+                            "current_price": current_price,
+                            "reduces_risk": True
+                        })
+            
+            # Apply heat kill-switch logic - allow risk-reducing trades
+            if self.portfolio_heat > self.max_portfolio_heat:
+                risk_reducing_orders = [o for o in orders_to_execute if o["reduces_risk"]]
+                if risk_reducing_orders:
+                    logger.warning(f"🔥 Heat kill-switch active ({self.portfolio_heat:.3f}), executing {len(risk_reducing_orders)} risk-reducing trades only")
+                    orders_to_execute = risk_reducing_orders
+                else:
+                    self.heat_kill_switch_triggered = True
+                    self.heat_pause_cycles = 10
+                    logger.error(f"🔥 PORTFOLIO HEAT KILL-SWITCH TRIGGERED: {self.portfolio_heat:.3f} > {self.max_portfolio_heat:.3f}")
+                    return
+            elif self.heat_kill_switch_triggered:
+                if self.heat_pause_cycles > 0:
+                    self.heat_pause_cycles -= 1
+                    # Still allow exits during pause
+                    exit_orders = [o for o in orders_to_execute if o["is_exit"]]
+                    if exit_orders:
+                        logger.warning(f"🔥 Heat pause active ({self.heat_pause_cycles} cycles), executing {len(exit_orders)} exits only")
+                        orders_to_execute = exit_orders
+                    else:
+                        logger.warning(f"🔥 Heat kill-switch active: {self.heat_pause_cycles} cycles remaining")
+                        return
+                else:
+                    logger.info("🔥 Heat kill-switch reset - resuming trading")
+                    self.heat_kill_switch_triggered = False
+            
+            if not orders_to_execute:
+                logger.info("No trades needed - positions match targets")
+                return
 
-                # Calculate position size based on signal strength and confidence
-                signal_strength = abs(position) * confidence
-                position_value = capital_per_signal * signal_strength
-
-                # Minimum position size (configurable via env)
-                min_position_value = float(
-                    os.getenv("MIN_POSITION_VALUE", "25")
-                )  # Lower from $50 to $25
-                if position_value < min_position_value:
-                    logger.debug(
-                        f"Skipping {symbol}: position value ${position_value:.2f} below minimum ${min_position_value}"
-                    )
-                    continue
-
-                action = "BUY" if position > 0 else "SELL"
+            # Execute all prepared orders
+            for order in orders_to_execute:
+                symbol = order["symbol"]
+                action = order["action"]
+                quantity = order["quantity"]
+                position_value = order["value"]
+                current_price = order["current_price"]
+                confidence = order["confidence"]
+                is_exit = order["is_exit"]
 
                 # Store signal for tracking
-                signal_text = f"{datetime.utcnow().strftime('%H:%M')} {symbol} {action} ${position_value:.0f} (conf: {confidence:.1%})"
+                exit_flag = " (EXIT)" if is_exit else ""
+                signal_text = f"{datetime.utcnow().strftime('%H:%M')} {symbol} {action} ${position_value:.0f}{exit_flag} (conf: {confidence:.1%})"
                 self.recent_signals.append(signal_text)
 
                 # Keep only last 50 signals
@@ -394,11 +448,24 @@ class CryptoTradingBot:
                     self.recent_signals = self.recent_signals[-50:]
 
                 if self.dry_run:
+                    # Update paper positions
+                    if not hasattr(self, 'paper_positions'):
+                        self.paper_positions = {}
+                    
+                    current_qty = self.paper_positions.get(symbol, 0.0)
+                    qty_change = quantity if action == "BUY" else -quantity
+                    new_qty = current_qty + qty_change
+                    
+                    if abs(new_qty) < 0.001:
+                        self.paper_positions.pop(symbol, None)
+                    else:
+                        self.paper_positions[symbol] = new_qty
+                    
                     logger.info(
-                        f"🎯 PAPER TRADE: {action} ${position_value:.2f} of {symbol} @ ${current_price:.4f}"
+                        f"🎯 PAPER TRADE: {action} {quantity:.6f} {symbol} @ ${current_price:.4f} = ${position_value:.2f}{exit_flag}"
                     )
                     logger.info(
-                        f"   → Signal: {position:.3f}, Confidence: {confidence:.1%}, Balance: ${balance:.0f}"
+                        f"   → Position: {current_qty:.6f} → {new_qty:.6f}, Confidence: {confidence:.1%}"
                     )
 
                     # Track paper trade
@@ -407,56 +474,50 @@ class CryptoTradingBot:
                         "action": action.lower(),
                         "price": current_price,
                         "size": position_value,
+                        "quantity": quantity,
                         "timestamp": datetime.utcnow(),
+                        "is_exit": is_exit,
                     }
                     self.recent_trades.append(trade_info)
 
-                    # Trade notifications now consolidated in digest emails only
                 else:
                     # Execute actual live trading
                     try:
-                        # Calculate quantity for the dollar amount
-                        quantity = position_value / current_price
-
                         if action == "BUY":
-                            order = self.exchange.create_market_buy_order(
+                            order_result = self.exchange.create_market_buy_order(
                                 symbol, quantity
                             )
                         else:
-                            order = self.exchange.create_market_sell_order(
+                            order_result = self.exchange.create_market_sell_order(
                                 symbol, quantity
                             )
 
                         logger.info(
-                            f"🚀 LIVE TRADE EXECUTED: {action} {quantity:.6f} {symbol} @ ${current_price:.4f} = ${position_value:.2f}"
+                            f"🚀 LIVE TRADE EXECUTED: {action} {quantity:.6f} {symbol} @ ${current_price:.4f} = ${position_value:.2f}{exit_flag}"
                         )
-                        logger.info(f"   → Order ID: {order.get('id', 'N/A')}")
+                        logger.info(f"   → Order ID: {order_result.get('id', 'N/A')}")
 
-                        # Implement OCO hard-stop with ATR-based sizing
-                        try:
-                            atr_multiplier = 1.2  # From risk limits
-                            # Estimate ATR as 2% of current price (simplified)
-                            estimated_atr = current_price * 0.02
-                            stop_distance = atr_multiplier * estimated_atr
+                        # Implement OCO hard-stop with ATR-based sizing (only for new positions)
+                        if not is_exit:
+                            try:
+                                atr_multiplier = 1.2
+                                estimated_atr = current_price * 0.02
+                                stop_distance = atr_multiplier * estimated_atr
 
-                            if action == "BUY":
-                                stop_loss_price = current_price - stop_distance
-                                take_profit_price = current_price + stop_distance
-                            else:
-                                stop_loss_price = current_price + stop_distance
-                                take_profit_price = current_price - stop_distance
+                                if action == "BUY":
+                                    stop_loss_price = current_price - stop_distance
+                                    take_profit_price = current_price + stop_distance
+                                else:
+                                    stop_loss_price = current_price + stop_distance
+                                    take_profit_price = current_price - stop_distance
 
-                            # Log stop order details (actual OCO implementation would depend on exchange)
-                            logger.info(
-                                f"   → Stop Loss: ${stop_loss_price:.4f}, Take Profit: ${take_profit_price:.4f}"
-                            )
+                                logger.info(
+                                    f"   → Stop Loss: ${stop_loss_price:.4f}, Take Profit: ${take_profit_price:.4f}"
+                                )
+                            except Exception as stop_error:
+                                logger.warning(f"Could not set OCO stop for {symbol}: {stop_error}")
 
-                        except Exception as stop_error:
-                            logger.warning(
-                                f"Could not set OCO stop for {symbol}: {stop_error}"
-                            )
-
-                        # Track live trade for digest
+                        # Track live trade
                         trade_info = {
                             "symbol": symbol,
                             "action": action.lower(),
@@ -464,21 +525,26 @@ class CryptoTradingBot:
                             "size": position_value,
                             "quantity": quantity,
                             "timestamp": datetime.utcnow(),
-                            "order_id": order.get("id"),
+                            "order_id": order_result.get("id"),
+                            "is_exit": is_exit,
                         }
                         self.recent_trades.append(trade_info)
 
                     except Exception as e:
                         logger.error(f"❌ Live trade failed for {symbol}: {e}")
-                        # Only alert on critical trade failures
                         if "insufficient" not in str(e).lower():
                             await notifier.send_risk_alert(
                                 message=f"Live trade failure {symbol}: {e}",
                                 severity="ERROR",
                             )
 
+            # Summary logging
+            entry_orders = [o for o in orders_to_execute if not o["is_exit"]]
+            exit_orders = [o for o in orders_to_execute if o["is_exit"]]
+            
             logger.info(
-                f"💰 Portfolio allocation: {len(valid_signals)} positions, ${available_capital:.0f} capital used"
+                f"💰 Portfolio update: {len(entry_orders)} entries, {len(exit_orders)} exits, "
+                f"Heat: {self.portfolio_heat:.3f}"
             )
 
         except Exception as e:
